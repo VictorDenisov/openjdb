@@ -93,6 +93,9 @@ versionCommand id = CommandPacket 11 id 0 1 1 EmptyPacketData
 idSizesCommand :: Word32 -> Packet
 idSizesCommand id = CommandPacket 11 id 0 1 7 EmptyPacketData
 
+resumeCommand :: Word32 -> JavaThreadId -> Packet
+resumeCommand id threadId = CommandPacket 19 id 0 11 3 (ThreadIdPacketData threadId)
+
 type JavaByte = Word8
 type JavaInt = Word32
 type JavaLong = Word64
@@ -158,6 +161,9 @@ data PacketData = EventSet
                     , referenceTypeIdSize :: JavaInt
                     , frameIdSize         :: JavaInt
                     }
+                | ThreadIdPacketData
+                    { tId :: JavaThreadId
+                    }
                 | EmptyPacketData
                   deriving Show
 
@@ -165,6 +171,8 @@ putPacketData :: PacketData -> Put
 putPacketData (EventSet sp e) = do
     put sp
     mapM_ putEvent e
+putPacketData (ThreadIdPacketData i) = do
+    put i
 putPacketData (EmptyPacketData) = return ()
 
 putEvent :: Event -> Put

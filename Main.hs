@@ -10,8 +10,9 @@ import Network.Socket.Internal (PortNumber(..))
 import Control.Monad.Trans (liftIO)
 import qualified Data.ByteString.Lazy as B
 import qualified Data.ByteString.Lazy.Char8 as B8
-import Data.Binary.Get (runGet)
+import Data.Binary.Get (runGet, Get)
 import Data.Binary.Put (runPut)
+import Data.Binary (get)
 
 import Jdwp
 
@@ -78,8 +79,7 @@ handshake h = do
 mainLoop :: Handle -> IO ()
 mainLoop h = do
     handshake h
-    packet <- receivePacket h
-    putStrLn $ show packet
+    receivePacket h (\_ -> undefined)
     runInputT defaultSettings loop
     where 
         loop :: InputT IO ()
@@ -93,23 +93,35 @@ mainLoop h = do
                     liftIO . (processCommand h) $ input
                     loop
 
-receivePacket :: Handle -> IO Packet
-receivePacket h = do
-    inputAvailable <- hWaitForInput h (-1)
-    s <- B.hGetContents h
-    let p = runGet (parsePacket (\_ -> undefined)) s
-    return p
+receivePacket :: Handle -> (PacketId -> Get PacketData)-> IO ()
+receivePacket h f = do
+    inputAvailable <- hWaitForInput h 1
+    if inputAvailable
+    then do putStrLn "Input is available"
+            lengthString <- B.hGet h 4
+            let length = (fromIntegral $ runGet (parseInt) lengthString) - 4
+            putStrLn $ show length
+            reminder <- B.hGet h length
+            let p = runGet (parsePacket f) (lengthString `B.append` reminder)
+            putStrLn $ show p
+    else do putStrLn "No data yet"
 
 processCommand :: Handle -> String -> IO ()
 processCommand h "version" = do
     B.hPut h $ runPut $ putPacket $ versionCommand 1
+    hFlush h
     putStrLn "version request sent"
+    receivePacket h (\_ -> parseVersionReply)
     --s <- B.hGetContents h
     --putStrLn $ show s
     {-
     let p = runGet (parsePacket (\_ -> undefined)) s
     putStrLn $ show p
     -}
+processCommand h "resume" = do
+    B.hPut h $ runPut $ putPacket $ resumeCommand 1 1
+    hFlush h
+    --receivePacket h (\_ -> undefined)
 processCommand _ cmd = putStrLn ("Hello from processCommand " ++ cmd)
 
 {-
