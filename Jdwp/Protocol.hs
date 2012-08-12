@@ -1,4 +1,4 @@
-module Jdwp where
+module Jdwp.Protocol where
 
 import Prelude hiding (length, id)
 import Data.Word (Word8, Word16, Word32, Word64)

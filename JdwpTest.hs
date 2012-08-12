@@ -3,7 +3,7 @@ import Test.HUnit
 import qualified Data.ByteString.Lazy as B
 import Data.Word (Word8)
 import Data.Binary.Get (runGet)
-import Jdwp
+import Jdwp.Protocol
 import Data.Binary (decodeFile)
 
 testParseByte :: [Word8] -> JavaByte -> Test
@@ -57,10 +57,4 @@ tests = TestList
         [ testParseEvent [90, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 2] (VmStartEvent 1 2) ]
     ]
 
-main = do
-    line <- B.readFile "sample/reply.txt"
-    let value = runGet (parseList 2 (parsePacket (\id -> replyParser $ dataParsers (1, 1)))) line
-    putStrLn $ show value
-    
---main = putStrLn $ show $ runGet parseInt (B.pack [0, 0, 1, 2])
---main = runTestTT tests
+main = runTestTT tests

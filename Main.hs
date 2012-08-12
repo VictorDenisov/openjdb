@@ -14,7 +14,7 @@ import Data.Binary.Get (runGet, Get)
 import Data.Binary.Put (runPut)
 import Data.Binary (get)
 
-import Jdwp
+import Jdwp.Protocol
 
 openConnection :: String -> PortID -> IO Handle
 openConnection host port = do
