@@ -16,12 +16,11 @@ import Data.Binary (get)
 
 import Jdwp
 
-withConnection :: String -> PortID -> (Handle -> IO ()) -> IO ()
-withConnection host port f = do
+openConnection :: String -> PortID -> IO Handle
+openConnection host port = do
     h <- connectTo host port
     hSetBinaryMode h True
-    f h
-    hClose h
+    return h
 
 data Flag = Version
           | Port { port :: String }
@@ -63,7 +62,7 @@ main = do
     else if Version `elem` opts
          then putStrLn "1.0"
          else if ((isPort `any` opts) && (isHost `any` opts))
-              then withConnection (getHost opts) (getPort opts) mainLoop
+              then bracket (openConnection (getHost opts) (getPort opts)) hClose mainLoop
               else putStrLn "Host and port arguments are required"
 
 handshake :: Handle -> IO ()
