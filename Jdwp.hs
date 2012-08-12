@@ -95,8 +95,8 @@ versionCommand id = CommandPacket 11 id 0 1 1 EmptyPacketData
 idSizesCommand :: Word32 -> Packet
 idSizesCommand id = CommandPacket 11 id 0 1 7 EmptyPacketData
 
-resumeCommand :: Word32 -> JavaThreadId -> Packet
-resumeCommand id threadId = CommandPacket 19 id 0 11 3 (ThreadIdPacketData threadId)
+resumeThreadCommand :: Word32 -> JavaThreadId -> Packet
+resumeThreadCommand id threadId = CommandPacket 19 id 0 11 3 (ThreadIdPacketData threadId)
 
 type JavaByte = Word8
 type JavaInt = Word32

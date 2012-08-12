@@ -111,21 +111,10 @@ processCommand h "version" = do
     hFlush h
     putStrLn "version request sent"
     receivePacket h (\_ -> parseVersionReply)
-    --s <- B.hGetContents h
-    --putStrLn $ show s
-    {-
-    let p = runGet (parsePacket (\_ -> undefined)) s
-    putStrLn $ show p
-    -}
+
 processCommand h "resume" = do
-    B.hPut h $ runPut $ putPacket $ resumeCommand 1 1
+    B.hPut h $ runPut $ putPacket $ resumeThreadCommand 1 1
     hFlush h
-    --receivePacket h (\_ -> undefined)
+
 processCommand _ cmd = putStrLn ("Hello from processCommand " ++ cmd)
 
-{-
-main = do
-    line <- B.readFile "sample/reply.txt"
-    let value = runGet (parseList 2 (parsePacket (\id -> replyParser $ dataParsers (1, 1)))) line
-    putStrLn $ show value
-    -}
