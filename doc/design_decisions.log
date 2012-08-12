@@ -1,0 +1,4 @@
+2012-08-12 - There is a beautiful concept: lazy read everything from socket and
+             then parse it using GetT monad transformer of Get monad. However
+             in this case we can not just check if there is some data on input.
+             Approach with direct reading gives more flexibility.
