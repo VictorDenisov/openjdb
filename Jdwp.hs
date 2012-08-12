@@ -71,7 +71,9 @@ dataParsers _ = undefined
 emptyDataParser :: Get PacketData
 emptyDataParser = return EmptyPacketData
 
-parsePacket :: (PacketId -> Get PacketData) -> Get Packet
+type ReplyDataParser = PacketId -> Get PacketData
+
+parsePacket :: ReplyDataParser -> Get Packet
 parsePacket replyDataParser = do
     l <- get
     i <- get

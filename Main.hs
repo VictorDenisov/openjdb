@@ -92,7 +92,7 @@ mainLoop h = do
                     liftIO . (processCommand h) $ input
                     loop
 
-receivePacket :: Handle -> (PacketId -> Get PacketData)-> IO ()
+receivePacket :: Handle -> ReplyDataParser -> IO ()
 receivePacket h f = do
     inputAvailable <- hWaitForInput h 1
     if inputAvailable
