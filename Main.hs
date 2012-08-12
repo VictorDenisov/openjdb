@@ -107,14 +107,16 @@ receivePacket h f = do
 
 processCommand :: Handle -> String -> IO ()
 processCommand h "version" = do
-    B.hPut h $ runPut $ putPacket $ versionCommand 1
-    hFlush h
+    sendPacket h $ versionCommand 1
     putStrLn "version request sent"
     receivePacket h (\_ -> parseVersionReply)
 
 processCommand h "resume" = do
-    B.hPut h $ runPut $ putPacket $ resumeThreadCommand 1 1
-    hFlush h
+    sendPacket h $ resumeThreadCommand 1 1
 
 processCommand _ cmd = putStrLn ("Hello from processCommand " ++ cmd)
 
+sendPacket :: Handle -> Packet -> IO ()
+sendPacket h p = do
+    B.hPut h $ runPut $ putPacket p
+    hFlush h
