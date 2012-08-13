@@ -15,6 +15,7 @@ import Data.Binary.Put (runPut)
 import Data.Binary (get)
 
 import Jdwp.Protocol
+import Jdwp.Configuration
 
 openConnection :: String -> PortID -> IO Handle
 openConnection host port = do
@@ -78,18 +79,18 @@ handshake h = do
 mainLoop :: Handle -> IO ()
 mainLoop h = do
     handshake h
-    runInputT defaultSettings loop
+    runInputT defaultSettings $ evalConfT loop initConf
     where 
-        loop :: InputT IO ()
+        loop :: ConfT (InputT IO) ()
         loop = do
-            lift $ receivePacket h (\_ -> undefined)
-            minput <- getInputLine "(jdb) "
+            lift $ lift $ receivePacket h (\_ -> undefined)
+            minput <- lift $ getInputLine "(jdb) "
             case minput of
                 Nothing -> return ()
                 Just "quit" -> return ()
                 Just input -> do
-                    outputStrLn $ "Input was: " ++ input
-                    liftIO . (processCommand h) $ input
+                    lift $ outputStrLn $ "Input was: " ++ input
+                    lift $ liftIO $ processCommand h input
                     loop
 
 receivePacket :: Handle -> ReplyDataParser -> IO ()
