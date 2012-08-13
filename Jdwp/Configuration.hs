@@ -33,7 +33,7 @@ type ConfigT = StateT Configuration
 
 type Config  = ConfigT Identity
 
-initialConf = Configuration (IdSizes 0 0 0 0 0) 0 M.empty
+initConf = Configuration (IdSizes 0 0 0 0 0) 0 M.empty
 
 runConfT = runStateT
 
@@ -42,4 +42,9 @@ runConf s v = runIdentity $ (runStateT s) v
 incCmdCounter :: Monad m => ConfigT m ()
 incCmdCounter = do
     s <- get
-    put $ s {commandCounter = (commandCounter s) + 1}
+    put $ s { commandCounter = (commandCounter s) + 1 }
+
+setIdSizes :: Monad m => IdSizes -> ConfigT m ()
+setIdSizes iss = do
+    s <- get
+    put $ s { idSizes = iss }

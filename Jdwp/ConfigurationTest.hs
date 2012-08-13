@@ -6,24 +6,32 @@ testUpdateConfiguration :: Test
 testUpdateConfiguration = TestCase (
     assertEqual
         "testUpdateConfiguration"
-        ((), initialConf {commandCounter = 2})
-        (runConf setTwoCommandId initialConf))
+        ((), initConf {commandCounter = 2})
+        (runConf setTwoCommandId initConf))
 
 testIncCmdCounter :: Test
 testIncCmdCounter = TestCase (
     assertEqual
         "testIncCmdCounter"
-        ((), initialConf {commandCounter = 1})
-        (runConf incCmdCounter initialConf))
+        ((), initConf {commandCounter = 1})
+        (runConf incCmdCounter initConf))
+
+testSetIdSizes :: Test
+testSetIdSizes = TestCase (
+    assertEqual
+        "testSetIdSizes"
+        ((), initConf {idSizes = IdSizes 1 2 3 4 5})
+        (runConf (setIdSizes $ IdSizes 1 2 3 4 5) initConf))
 
 tests = TestList [ testUpdateConfiguration 
                  , testIncCmdCounter
+                 , testSetIdSizes
                  ]
-
-main = do
-    runTestTT tests
 
 setTwoCommandId :: Config ()
 setTwoCommandId = do
     s <- get
     put $ s { commandCounter = (commandCounter s) + 2}
+
+main = do
+    runTestTT tests

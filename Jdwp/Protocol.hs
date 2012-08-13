@@ -4,20 +4,13 @@ import Prelude hiding (length, id)
 import Data.Word (Word8, Word16, Word32, Word64)
 import qualified Data.ByteString as B
 import qualified Data.ByteString.Char8 as B8
+import qualified Data.Map as M
 import Data.Binary (Binary(..), Get, Put)
 import Data.Bits ((.&.))
 
 type PacketId = Word32
 type CommandSet = Word8
 type Command = Word8
-
-data Configuration = Configuration
-             { fieldIdSizeConf         :: JavaInt
-             , methodIdSizeConf        :: JavaInt
-             , objectIdSizeConf        :: JavaInt
-             , referenceTypeIdSizeConf :: JavaInt
-             , frameIdSizeConf         :: JavaInt
-             }
 
 data Packet = CommandPacket { length     :: Word32
                             , id         :: PacketId
@@ -98,12 +91,17 @@ idSizesCommand id = CommandPacket 11 id 0 1 7 EmptyPacketData
 resumeThreadCommand :: Word32 -> JavaThreadId -> Packet
 resumeThreadCommand id threadId = CommandPacket 19 id 0 11 3 (ThreadIdPacketData threadId)
 
-type JavaByte = Word8
-type JavaInt = Word32
-type JavaLong = Word64
-type JavaThreadId = Word64
-type JavaString = String
-type JavaBoolean = Bool
+type JavaByte            = Word8
+type JavaInt             = Word32
+type JavaLong            = Word64
+type JavaString          = String
+type JavaBoolean         = Bool
+type JavaFieldId         = Word64
+type JavaMethodId        = Word64
+type JavaObjectId        = Word64
+type JavaReferenceTypeId = Word64
+type JavaFrameId         = Word64
+type JavaThreadId        = JavaObjectId
 
 parseByte :: Get JavaByte
 parseByte = do
