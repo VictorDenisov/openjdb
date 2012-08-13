@@ -131,18 +131,6 @@ parseString = do
     list <- parseList len (get :: Get Word8)
     return $ B8.unpack $ B.pack list
 
-parseThreadId :: Get JavaThreadId
-parseThreadId = do
-    v <- get
-    return v
-
-data Event = VmStartEvent
-    { requestId :: JavaInt
-    , threadId  :: JavaThreadId
-    }
-    | NoEvent
-      deriving (Show, Eq)
-
 data PacketData = EventSet
                     { suspendPolicy :: JavaByte
                     , events        :: [Event]
@@ -166,6 +154,13 @@ data PacketData = EventSet
                     }
                 | EmptyPacketData
                   deriving Show
+
+data Event = VmStartEvent
+    { requestId :: JavaInt
+    , threadId  :: JavaThreadId
+    }
+    | NoEvent
+      deriving (Show, Eq)
 
 putPacketData :: PacketData -> Put
 putPacketData (EventSet sp e) = do
@@ -215,3 +210,7 @@ parseEvent = do
             return $ VmStartEvent requestId threadId
         _  -> return NoEvent
 
+parseThreadId :: Get JavaThreadId
+parseThreadId = do
+    v <- get
+    return v
