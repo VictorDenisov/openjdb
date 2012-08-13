@@ -7,7 +7,7 @@ import Data.List (intercalate, find)
 import Data.Maybe (fromMaybe)
 import GHC.Word (Word16, Word32, Word8)
 import Network.Socket.Internal (PortNumber(..))
-import Control.Monad.Trans (liftIO)
+import Control.Monad.Trans (liftIO, lift)
 import qualified Data.ByteString.Lazy as B
 import qualified Data.ByteString.Lazy.Char8 as B8
 import Data.Binary.Get (runGet, Get)
@@ -78,11 +78,11 @@ handshake h = do
 mainLoop :: Handle -> IO ()
 mainLoop h = do
     handshake h
-    receivePacket h (\_ -> undefined)
     runInputT defaultSettings loop
     where 
         loop :: InputT IO ()
         loop = do
+            lift $ receivePacket h (\_ -> undefined)
             minput <- getInputLine "(jdb) "
             case minput of
                 Nothing -> return ()
