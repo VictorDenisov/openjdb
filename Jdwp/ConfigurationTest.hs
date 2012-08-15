@@ -6,15 +6,15 @@ testUpdateConfiguration :: Test
 testUpdateConfiguration = TestCase (
     assertEqual
         "testUpdateConfiguration"
-        ((), initConf {commandCounter = 2})
+        ((), initConf {packetIdCounter = 2})
         (runConf setTwoCommandId initConf))
 
-testIncCmdCounter :: Test
-testIncCmdCounter = TestCase (
+testIncPacketIdCounter :: Test
+testIncPacketIdCounter = TestCase (
     assertEqual
-        "testIncCmdCounter"
-        ((), initConf {commandCounter = 1})
-        (runConf incCmdCounter initConf))
+        "testIncPacketIdCounter"
+        ((), initConf {packetIdCounter = 1})
+        (runConf incPacketIdCounter initConf))
 
 testSetIdSizes :: Test
 testSetIdSizes = TestCase (
@@ -23,15 +23,22 @@ testSetIdSizes = TestCase (
         ((), initConf {idSizes = IdSizes 1 2 3 4 5})
         (runConf (setIdSizes $ IdSizes 1 2 3 4 5) initConf))
 
+testGetPacketIdCounter :: Test
+testGetPacketIdCounter = TestCase (
+    assertEqual
+        "testGetPacketIdCounter"
+        3
+        (evalConf getPacketIdCounter $ initConf {packetIdCounter = 3}))
+
 tests = TestList [ testUpdateConfiguration 
-                 , testIncCmdCounter
+                 , testIncPacketIdCounter
                  , testSetIdSizes
                  ]
 
-setTwoCommandId :: Config ()
+setTwoCommandId :: Conf ()
 setTwoCommandId = do
     s <- get
-    put $ s { commandCounter = (commandCounter s) + 2}
+    put $ s { packetIdCounter = (packetIdCounter s) + 2}
 
 main = do
     runTestTT tests

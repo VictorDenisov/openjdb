@@ -9,17 +9,17 @@ import Jdwp.Protocol
 
 data Configuration = Configuration
     { idSizes        :: IdSizes
-    , commandCounter :: Word32
+    , packetIdCounter :: PacketId
     , replyParsers   :: M.Map PacketId ReplyDataParser
     }
 
 instance Eq Configuration where
     a == b = 
              idSizes a == idSizes b
-          && commandCounter a == commandCounter b
+          && packetIdCounter a == packetIdCounter b
 
 instance Show Configuration where
-    show c = (show $ idSizes c) ++ " " ++ (show $ commandCounter c)
+    show c = (show $ idSizes c) ++ " " ++ (show $ packetIdCounter c)
 
 data IdSizes = IdSizes
     { fieldIdSizeConf         :: JavaInt
@@ -42,10 +42,17 @@ evalConfT = evalStateT
 
 runConf s v = runIdentity $ (runStateT s) v
 
-incCmdCounter :: Monad m => ConfT m ()
-incCmdCounter = do
+evalConf s v = runIdentity $ (evalConfT s) v
+
+getPacketIdCounter :: Monad m => ConfT m PacketId
+getPacketIdCounter = do
     s <- get
-    put $ s { commandCounter = (commandCounter s) + 1 }
+    return $ packetIdCounter s
+
+incPacketIdCounter :: Monad m => ConfT m ()
+incPacketIdCounter = do
+    s <- get
+    put $ s { packetIdCounter = (packetIdCounter s) + 1 }
 
 setIdSizes :: Monad m => IdSizes -> ConfT m ()
 setIdSizes iss = do
