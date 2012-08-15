@@ -215,13 +215,13 @@ dataParsers _ = undefined
 -- }}}
 ------------Command Constructors Section
 -- {{{
-versionCommand :: Word32 -> Packet
+versionCommand :: PacketId -> Packet
 versionCommand id = CommandPacket 11 id 0 1 1 EmptyPacketData
 
-idSizesCommand :: Word32 -> Packet
+idSizesCommand :: PacketId -> Packet
 idSizesCommand id = CommandPacket 11 id 0 1 7 EmptyPacketData
 
-resumeThreadCommand :: Word32 -> JavaThreadId -> Packet
+resumeThreadCommand :: PacketId -> JavaThreadId -> Packet
 resumeThreadCommand id threadId = CommandPacket 19 id 0 11 3 (ThreadIdPacketData threadId)
 
 -- }}}

@@ -90,7 +90,9 @@ mainLoop h = do
                 Just "quit" -> return ()
                 Just input -> do
                     lift $ outputStrLn $ "Input was: " ++ input
-                    lift $ liftIO $ processCommand h input
+                    cntr <- getPacketIdCounter
+                    incPacketIdCounter
+                    lift $ liftIO $ processCommand h cntr input
                     loop
 
 receivePacket :: Handle -> ReplyDataParser -> IO ()
@@ -106,16 +108,16 @@ receivePacket h f = do
             putStrLn $ show p
     else do putStrLn "No data yet"
 
-processCommand :: Handle -> String -> IO ()
-processCommand h "version" = do
-    sendPacket h $ versionCommand 1
+processCommand :: Handle -> PacketId -> String -> IO ()
+processCommand h cntr "version" = do
+    sendPacket h $ versionCommand cntr
     putStrLn "version request sent"
     receivePacket h (\_ -> parseVersionReply)
 
-processCommand h "resume" = do
-    sendPacket h $ resumeThreadCommand 1 1
+processCommand h cntr "resume" = do
+    sendPacket h $ resumeThreadCommand cntr 1
 
-processCommand _ cmd = putStrLn ("Hello from processCommand " ++ cmd)
+processCommand _ _ cmd = putStrLn ("Hello from processCommand " ++ cmd)
 
 sendPacket :: Handle -> Packet -> IO ()
 sendPacket h p = do
