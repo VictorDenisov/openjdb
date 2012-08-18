@@ -79,12 +79,12 @@ handshake h = do
 mainLoop :: Handle -> IO ()
 mainLoop h = do
     handshake h
+    packet <- receivePacket h (\_ -> parseEmptyData) -- receive VmStartEvent
+    putStrLn $ show packet
     runInputT defaultSettings $ evalConfT loop initConf
     where 
         loop :: ConfT (InputT IO) ()
         loop = do
-            packet <- liftIO $ receivePacket h (\_ -> parseEmptyData)
-            liftIO $ putStrLn $ show packet
             minput <- lift $ getInputLine "(jdb) "
             case minput of
                 Nothing -> return ()
@@ -98,7 +98,7 @@ mainLoop h = do
 
 receivePacket :: Handle -> ReplyDataParser -> IO (Maybe Packet)
 receivePacket h f = do
-    inputAvailable <- hWaitForInput h 1
+    inputAvailable <- hWaitForInput h (-1)
     if inputAvailable
     then do putStrLn "Input is available"
             lengthString <- B.hGet h 4
@@ -109,23 +109,37 @@ receivePacket h f = do
             return $ Just p
     else return Nothing
 
+waitReply :: Handle -> ReplyDataParser -> ConfT (InputT IO) ()
+waitReply h f = liftIO $ do
+    packet <- receivePacket h f
+    case packet of
+        Just (CommandPacket _ _ _ _ _ _) -> error "reply expected, but command received"
+        {- Normally here some queue should be implemented, but currectly for brevity
+         - we assume that we never get event before reply.
+         -}
+        Just (ReplyPacket _ _ _ _ _) -> putStrLn $ show packet
+        x -> error $ "This wasn't expected" ++ (show x)
+
+waitEvent :: Handle -> ConfT (InputT IO) ()
+waitEvent h = liftIO $ do
+    packet <- receivePacket h $ \_ -> error "ReplyDataParser is invoked where only command parsing is expected"
+    putStrLn $ show packet
+
 processCommand :: Handle -> PacketId -> String -> ConfT (InputT IO) ()
-processCommand h cntr "version" = liftIO $ do
+processCommand h cntr "version" = do
     sendPacket h $ versionCommand cntr
-    putStrLn "version request sent"
-    packet <- receivePacket h $ \_ -> parseVersionReply
-    putStrLn $ show packet
+    liftIO $ putStrLn "version request sent"
+    waitReply h $ \_ -> parseVersionReply
 
-
-processCommand h cntr "resume" = liftIO $ do
+processCommand h cntr "resume" = do
     sendPacket h $ resumeVmCommand cntr
-    packet <- receivePacket h $ \_ -> parseEmptyData
-    putStrLn $ show packet
+    waitReply h $ \_ -> parseEmptyData
+    waitEvent h
 
 processCommand _ _ cmd = liftIO $ do
     putStrLn ("Hello from processCommand " ++ cmd)
 
-sendPacket :: Handle -> Packet -> IO ()
-sendPacket h p = do
+sendPacket :: Handle -> Packet -> ConfT (InputT IO) ()
+sendPacket h p = liftIO $ do
     B.hPut h $ runPut $ putPacket p
     hFlush h
