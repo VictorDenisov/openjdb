@@ -83,7 +83,8 @@ mainLoop h = do
     where 
         loop :: ConfT (InputT IO) ()
         loop = do
-            liftIO $ receivePacket h (\_ -> parseEmptyData)
+            packet <- liftIO $ receivePacket h (\_ -> parseEmptyData)
+            liftIO $ putStrLn $ show packet
             minput <- lift $ getInputLine "(jdb) "
             case minput of
                 Nothing -> return ()
@@ -95,7 +96,7 @@ mainLoop h = do
                     processCommand h cntr input
                     loop
 
-receivePacket :: Handle -> ReplyDataParser -> IO ()
+receivePacket :: Handle -> ReplyDataParser -> IO (Maybe Packet)
 receivePacket h f = do
     inputAvailable <- hWaitForInput h 1
     if inputAvailable
@@ -105,18 +106,21 @@ receivePacket h f = do
             putStrLn $ show length
             reminder <- B.hGet h length
             let p = runGet (parsePacket f) (lengthString `B.append` reminder)
-            putStrLn $ show p
-    else do putStrLn "No data yet"
+            return $ Just p
+    else return Nothing
 
 processCommand :: Handle -> PacketId -> String -> ConfT (InputT IO) ()
 processCommand h cntr "version" = liftIO $ do
     sendPacket h $ versionCommand cntr
     putStrLn "version request sent"
-    receivePacket h $ \_ -> parseVersionReply
+    packet <- receivePacket h $ \_ -> parseVersionReply
+    putStrLn $ show packet
+
 
 processCommand h cntr "resume" = liftIO $ do
     sendPacket h $ resumeThreadCommand cntr 1
-    receivePacket h $ \_ -> parseEmptyData
+    packet <- receivePacket h $ \_ -> parseEmptyData
+    putStrLn $ show packet
 
 processCommand _ _ cmd = liftIO $ do
     putStrLn ("Hello from processCommand " ++ cmd)
