@@ -2,3 +2,24 @@
              then parse it using GetT monad transformer of Get monad. However
              in this case we can not just check if there is some data on input.
              Approach with direct reading gives more flexibility.
+
+2012-08-17 - At this moment I need to implement get ID sizes JDWP command
+             packet. There are two possible ways from here - either add ConfT to
+             the type of processCommand function and thus allow it to change
+             configuration or add reply handlers to top level receivePacket and
+             modify configuration only inside main loop.
+             I've chosen to add ConfT to processCommand's type, because
+             otherwise we need to implement a lot of reply handler which will
+             duplicate existing processCommand and put this logic separately.
+             There is an obscure moment in JDWP specification. It says: The JDWP
+             is asynchronous; multiple command packets may be sent before the
+             first reply packet is received. Hopefully it doesn't mean that it
+             cat accept a number of commands before it sends the first reply and
+             we can assume that if we send a command and wait for reply
+             eventually we receive reply packet or command packet with an event.
+             If it's not true then implementation where i.e. processCommand
+             function sends a request to VM and waits for reply is not
+             functional and the only option is to handle everything that comes
+             from VM in main loop by receivePacket function.
+
+vim: et ai textwidth=80
