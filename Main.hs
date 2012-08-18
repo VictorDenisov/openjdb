@@ -83,7 +83,7 @@ mainLoop h = do
     where 
         loop :: ConfT (InputT IO) ()
         loop = do
-            lift $ lift $ receivePacket h (\_ -> undefined)
+            liftIO $ receivePacket h (\_ -> parseEmptyData)
             minput <- lift $ getInputLine "(jdb) "
             case minput of
                 Nothing -> return ()
@@ -92,7 +92,7 @@ mainLoop h = do
                     lift $ outputStrLn $ "Input was: " ++ input
                     cntr <- getPacketIdCounter
                     incPacketIdCounter
-                    lift $ liftIO $ processCommand h cntr input
+                    processCommand h cntr input
                     loop
 
 receivePacket :: Handle -> ReplyDataParser -> IO ()
@@ -108,16 +108,18 @@ receivePacket h f = do
             putStrLn $ show p
     else do putStrLn "No data yet"
 
-processCommand :: Handle -> PacketId -> String -> IO ()
-processCommand h cntr "version" = do
+processCommand :: Handle -> PacketId -> String -> ConfT (InputT IO) ()
+processCommand h cntr "version" = liftIO $ do
     sendPacket h $ versionCommand cntr
     putStrLn "version request sent"
-    receivePacket h (\_ -> parseVersionReply)
+    receivePacket h $ \_ -> parseVersionReply
 
-processCommand h cntr "resume" = do
+processCommand h cntr "resume" = liftIO $ do
     sendPacket h $ resumeThreadCommand cntr 1
+    receivePacket h $ \_ -> parseEmptyData
 
-processCommand _ _ cmd = putStrLn ("Hello from processCommand " ++ cmd)
+processCommand _ _ cmd = liftIO $ do
+    putStrLn ("Hello from processCommand " ++ cmd)
 
 sendPacket :: Handle -> Packet -> IO ()
 sendPacket h p = do
