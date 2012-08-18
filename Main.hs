@@ -118,7 +118,7 @@ processCommand h cntr "version" = liftIO $ do
 
 
 processCommand h cntr "resume" = liftIO $ do
-    sendPacket h $ resumeThreadCommand cntr 1
+    sendPacket h $ resumeVmCommand cntr
     packet <- receivePacket h $ \_ -> parseEmptyData
     putStrLn $ show packet
 

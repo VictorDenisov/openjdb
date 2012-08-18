@@ -139,11 +139,14 @@ data PacketData = EventSet
                   deriving Show
 
 data Event = VmStartEvent
-    { requestId :: JavaInt
-    , threadId  :: JavaThreadId
-    }
-    | NoEvent
-      deriving (Show, Eq)
+                { requestId :: JavaInt
+                , threadId  :: JavaThreadId
+                }
+           | VmDeathEvent
+                { requestId :: JavaInt
+                }
+           | NoEvent
+             deriving (Show, Eq)
 
 putPacketData :: PacketData -> Put
 putPacketData (EventSet sp e) = do
@@ -191,6 +194,9 @@ parseEvent = do
             requestId <- parseInt
             threadId <- parseThreadId
             return $ VmStartEvent requestId threadId
+        99 -> do
+            requestId <- parseInt
+            return $ VmDeathEvent requestId
         _  -> return NoEvent
 
 parseThreadId :: Get JavaThreadId
@@ -220,6 +226,9 @@ versionCommand id = CommandPacket 11 id 0 1 1 EmptyPacketData
 
 idSizesCommand :: PacketId -> Packet
 idSizesCommand id = CommandPacket 11 id 0 1 7 EmptyPacketData
+
+resumeVmCommand :: PacketId -> Packet
+resumeVmCommand id = CommandPacket 11 id 0 1 9 EmptyPacketData
 
 resumeThreadCommand :: PacketId -> JavaThreadId -> Packet
 resumeThreadCommand id threadId = CommandPacket 19 id 0 11 3 (ThreadIdPacketData threadId)
