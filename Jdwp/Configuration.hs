@@ -4,6 +4,7 @@ import Control.Monad.State (StateT(..), MonadState(..), evalStateT)
 import Control.Monad.Identity (Identity, runIdentity)
 import qualified Data.Map as M
 import Data.Word (Word8, Word16, Word32, Word64)
+import Control.Monad (liftM)
 
 import Jdwp.Protocol
 
@@ -45,9 +46,7 @@ runConf s v = runIdentity $ (runStateT s) v
 evalConf s v = runIdentity $ (evalConfT s) v
 
 getPacketIdCounter :: Monad m => ConfT m PacketId
-getPacketIdCounter = do
-    s <- get
-    return $ packetIdCounter s
+getPacketIdCounter = liftM packetIdCounter get
 
 incPacketIdCounter :: Monad m => ConfT m ()
 incPacketIdCounter = do
