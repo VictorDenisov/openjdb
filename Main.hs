@@ -96,6 +96,28 @@ mainLoop h = do
                     processCommand h cntr input
                     loop
 
+processCommand :: Handle -> PacketId -> String -> ConfT (InputT IO) ()
+processCommand h cntr "version" = do
+    liftIO $ sendPacket h $ versionCommand cntr
+    liftIO $ putStrLn "version request sent"
+    p <- liftIO $ waitReply h $ \_ -> parseVersionReply
+    liftIO $ putStrLn $ show p
+
+processCommand h cntr "resume" = do
+    liftIO $ sendPacket h $ resumeVmCommand cntr
+    r <- liftIO $ waitReply h $ \_ -> parseEmptyData
+    liftIO $ putStrLn $ show r
+    e <- liftIO $ waitEvent h
+    liftIO $ putStrLn $ show e
+
+processCommand h cntr "idsizes" = do
+    liftIO $ sendPacket h $ idSizesCommand cntr
+    r <- liftIO $ waitReply h $ \_ -> parseIdSizesReply
+    liftIO $ putStrLn $ show r
+
+processCommand _ _ cmd = liftIO $
+    putStrLn ("Hello from processCommand " ++ cmd)
+
 receivePacket :: Handle -> ReplyDataParser -> IO Packet
 receivePacket h f = do
     inputAvailable <- hWaitForInput h (-1)
@@ -125,28 +147,6 @@ waitEvent h = do
     case packet of
         CommandPacket _ _ _ _ _ _ -> return packet
         ReplyPacket _ _ _ _ _ -> error "CommandPacket is expected, but reply packet received"
-
-processCommand :: Handle -> PacketId -> String -> ConfT (InputT IO) ()
-processCommand h cntr "version" = do
-    liftIO $ sendPacket h $ versionCommand cntr
-    liftIO $ putStrLn "version request sent"
-    p <- liftIO $ waitReply h $ \_ -> parseVersionReply
-    liftIO $ putStrLn $ show p
-
-processCommand h cntr "resume" = do
-    liftIO $ sendPacket h $ resumeVmCommand cntr
-    r <- liftIO $ waitReply h $ \_ -> parseEmptyData
-    liftIO $ putStrLn $ show r
-    e <- liftIO $ waitEvent h
-    liftIO $ putStrLn $ show e
-
-processCommand h cntr "idsizes" = do
-    liftIO $ sendPacket h $ idSizesCommand cntr
-    r <- liftIO $ waitReply h $ \_ -> parseIdSizesReply
-    liftIO $ putStrLn $ show r
-
-processCommand _ _ cmd = liftIO $
-    putStrLn ("Hello from processCommand " ++ cmd)
 
 sendPacket :: Handle -> Packet -> IO ()
 sendPacket h p = do
