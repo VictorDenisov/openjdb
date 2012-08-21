@@ -79,7 +79,7 @@ handshake h = do
 mainLoop :: Handle -> IO ()
 mainLoop h = do
     handshake h
-    packet <- receivePacket h (\_ -> parseEmptyData) -- receive VmStartEvent
+    packet <- waitEvent h -- receive VmStartEvent
     putStrLn $ show packet
     runInputT defaultSettings $ evalConfT loop initConf
     where 
@@ -109,8 +109,8 @@ receivePacket h f = do
             return p
     else error "No input available where expected"
 
-waitReply :: Handle -> ReplyDataParser -> ConfT (InputT IO) Packet
-waitReply h f = liftIO $ do
+waitReply :: Handle -> ReplyDataParser -> IO Packet
+waitReply h f = do
     packet <- receivePacket h f
     case packet of
         CommandPacket _ _ _ _ _ _ -> error "reply expected, but command received"
@@ -119,8 +119,8 @@ waitReply h f = liftIO $ do
          -}
         ReplyPacket _ _ _ _ _ -> return packet
 
-waitEvent :: Handle -> ConfT (InputT IO) Packet
-waitEvent h = liftIO $ do
+waitEvent :: Handle -> IO Packet
+waitEvent h = do
     packet <- receivePacket h $ \_ -> error "ReplyDataParser is invoked where only command parsing is expected"
     case packet of
         CommandPacket _ _ _ _ _ _ -> return packet
@@ -128,27 +128,27 @@ waitEvent h = liftIO $ do
 
 processCommand :: Handle -> PacketId -> String -> ConfT (InputT IO) ()
 processCommand h cntr "version" = do
-    sendPacket h $ versionCommand cntr
+    liftIO $ sendPacket h $ versionCommand cntr
     liftIO $ putStrLn "version request sent"
-    p <- waitReply h $ \_ -> parseVersionReply
+    p <- liftIO $ waitReply h $ \_ -> parseVersionReply
     liftIO $ putStrLn $ show p
 
 processCommand h cntr "resume" = do
-    sendPacket h $ resumeVmCommand cntr
-    r <- waitReply h $ \_ -> parseEmptyData
+    liftIO $ sendPacket h $ resumeVmCommand cntr
+    r <- liftIO $ waitReply h $ \_ -> parseEmptyData
     liftIO $ putStrLn $ show r
-    e <- waitEvent h
+    e <- liftIO $ waitEvent h
     liftIO $ putStrLn $ show e
 
 processCommand h cntr "idsizes" = do
-    sendPacket h $ idSizesCommand cntr
-    r <- waitReply h $ \_ -> parseIdSizesReply
+    liftIO $ sendPacket h $ idSizesCommand cntr
+    r <- liftIO $ waitReply h $ \_ -> parseIdSizesReply
     liftIO $ putStrLn $ show r
 
 processCommand _ _ cmd = liftIO $
     putStrLn ("Hello from processCommand " ++ cmd)
 
-sendPacket :: Handle -> Packet -> ConfT (InputT IO) ()
-sendPacket h p = liftIO $ do
+sendPacket :: Handle -> Packet -> IO ()
+sendPacket h p = do
     B.hPut h $ runPut $ putPacket p
     hFlush h
