@@ -114,6 +114,12 @@ processCommand h cntr "idsizes" = do
     liftIO $ sendPacket h $ idSizesCommand cntr
     r <- liftIO $ waitReply h $ \_ -> parseIdSizesReply
     liftIO $ putStrLn $ show r
+    let p = dat r
+    setIdSizes $ IdSizes (fieldIdSize p) (methodIdSize p) (objectIdSize p) (referenceTypeIdSize p) (frameIdSize p)
+
+processCommand h cntr "show idsizes" = do
+    is <- getIdSizes
+    liftIO $ putStrLn $ show is
 
 processCommand _ _ cmd = liftIO $
     putStrLn ("Hello from processCommand " ++ cmd)

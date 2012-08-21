@@ -57,3 +57,6 @@ setIdSizes :: Monad m => IdSizes -> ConfT m ()
 setIdSizes iss = do
     s <- get
     put $ s { idSizes = iss }
+
+getIdSizes :: Monad m => ConfT m IdSizes
+getIdSizes = liftM idSizes get
