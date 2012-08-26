@@ -7,6 +7,7 @@ import qualified Data.ByteString.Char8 as B8
 import qualified Data.Map as M
 import Data.Binary (Binary(..), Get, Put)
 import Data.Bits ((.&.))
+import Control.Applicative ((<$>), (<*>))
 
 ------------Packet description and parsing section.
 -- {{{
@@ -85,26 +86,16 @@ type JavaFrameId         = Word64
 type JavaThreadId        = JavaObjectId
 
 parseByte :: Get JavaByte
-parseByte = do
-    v <- get
-    return v
+parseByte = get
 
 parseBoolean :: Get JavaBoolean
-parseBoolean = do
-    b <- (get :: Get Word8)
-    if b == 0
-    then return False
-    else return True
+parseBoolean = (/= 0) <$> (get :: Get Word8)
 
 parseInt :: Get JavaInt
-parseInt = do
-    v <- get
-    return v
+parseInt = get
 
 parseLong :: Get JavaLong
-parseLong = do
-    v <- get
-    return v
+parseLong = get
 
 parseString :: Get JavaString
 parseString = do
@@ -152,7 +143,7 @@ putPacketData :: PacketData -> Put
 putPacketData (EventSet sp e) = do
     put sp
     mapM_ putEvent e
-putPacketData (ThreadIdPacketData i) = do
+putPacketData (ThreadIdPacketData i) =
     put i
 putPacketData (EmptyPacketData) = return ()
 
@@ -162,22 +153,20 @@ putEvent (VmStartEvent ri ti) = do
     put ti
 
 parseIdSizesReply :: Get PacketData
-parseIdSizesReply = do
-    fis  <- parseInt
-    mis  <- parseInt
-    ois  <- parseInt
-    rtis <- parseInt
-    fris <- parseInt
-    return $ IdSizesReply fis mis ois rtis fris
+parseIdSizesReply = IdSizesReply
+                        <$> parseInt
+                        <*> parseInt
+                        <*> parseInt
+                        <*> parseInt
+                        <*> parseInt
 
 parseVersionReply :: Get PacketData
-parseVersionReply = do
-    description <- parseString
-    jdwpMajor   <- parseInt
-    jdwpMinor   <- parseInt
-    vmVersion   <- parseString
-    vmName      <- parseString
-    return $ VersionReply description jdwpMajor jdwpMinor vmVersion vmName
+parseVersionReply = VersionReply
+                        <$> parseString
+                        <*> parseInt
+                        <*> parseInt
+                        <*> parseString
+                        <*> parseString
 
 parseEventSet :: Get PacketData
 parseEventSet = do
@@ -200,9 +189,7 @@ parseEvent = do
         _  -> return NoEvent
 
 parseThreadId :: Get JavaThreadId
-parseThreadId = do
-    v <- get
-    return v
+parseThreadId = get
 
 parseEmptyData :: Get PacketData
 parseEmptyData = return EmptyPacketData
