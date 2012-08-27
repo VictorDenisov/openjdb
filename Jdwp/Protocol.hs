@@ -7,6 +7,7 @@ import qualified Data.ByteString.Char8 as B8
 import qualified Data.Map as M
 import Data.Binary (Binary(..), Get, Put)
 import Data.Bits ((.&.))
+import Data.List (find)
 import Control.Applicative ((<$>), (<*>))
 
 ------------Packet description and parsing section.
@@ -102,6 +103,9 @@ parseString = do
     len <- (get :: Get Word32)
     list <- parseList len (get :: Get Word8)
     return $ B8.unpack $ B.pack list
+
+parseReferenceTypeId :: Get JavaReferenceTypeId
+parseReferenceTypeId = get
 -- }}}
 -------PacketData parsing section---------------------
 -- {{{
@@ -147,6 +151,7 @@ data Event = VmStartEvent
                 { requestId   :: JavaInt
                 , threadId    :: JavaThreadId
                 , refTypeTag  :: TypeTag
+                , typeId      :: JavaReferenceTypeId
                 , signature   :: JavaString
                 , classStatus :: ClassStatus
                 }
@@ -188,25 +193,36 @@ data TypeTag = Class
 newtype ClassStatus = ClassStatus JavaInt
                       deriving (Eq, Show)
 
+eventKindNumberList :: [(JavaByte, EventKind)]
+eventKindNumberList = [ (  1, SingleStep)
+                      , (  2, Breakpoint)
+                      , (  3, FramePop)
+                      , (  4, Exception)
+                      , (  5, UserDefined)
+                      , (  6, ThreadStart)
+                      , (  7, ThreadEnd)
+                      , (  8, ClassPrepare)
+                      , (  9, ClassUnload)
+                      , ( 10, ClassLoad)
+                      , ( 20, FieldAccess)
+                      , ( 21, FieldModification)
+                      , ( 30, ExceptionCatch)
+                      , ( 40, MethodEntry)
+                      , ( 41, MethodExit)
+                      , ( 90, VmInit)
+                      , ( 99, VmDeath)
+                      , (100, VmDisconnected)
+                      ]
+
 eventKindFromNumber :: JavaByte -> EventKind
-eventKindFromNumber 1   = SingleStep
-eventKindFromNumber 2   = Breakpoint
-eventKindFromNumber 3   = FramePop
-eventKindFromNumber 4   = Exception
-eventKindFromNumber 5   = UserDefined
-eventKindFromNumber 6   = ThreadStart
-eventKindFromNumber 7   = ThreadEnd
-eventKindFromNumber 8   = ClassPrepare
-eventKindFromNumber 9   = ClassUnload
-eventKindFromNumber 10  = ClassLoad
-eventKindFromNumber 20  = FieldAccess
-eventKindFromNumber 21  = FieldModification
-eventKindFromNumber 30  = ExceptionCatch
-eventKindFromNumber 40  = MethodEntry
-eventKindFromNumber 41  = MethodExit
-eventKindFromNumber 90  = VmInit
-eventKindFromNumber 99  = VmDeath
-eventKindFromNumber 100 = VmDisconnected
+eventKindFromNumber n = case find ((== n) . fst) eventKindNumberList of
+                            Just (_, v)  -> v
+                            Nothing -> error $ "Number " ++ (show n) ++ " doesn't match any eventKind"
+
+numberFromEventKind :: EventKind -> JavaByte
+numberFromEventKind e = case find ((== e) . snd) eventKindNumberList of
+                            Just (n, _) -> n
+                            Nothing     -> error $ "eventKindNumberList doesn't have EventKind " ++ (show e)
 
 suspendPolicyFromNumber :: JavaByte -> SuspendPolicy
 suspendPolicyFromNumber 0 = None
@@ -227,26 +243,10 @@ putClassStatus :: ClassStatus -> Put
 putClassStatus (ClassStatus v) = put v
 
 putEventKind :: EventKind -> Put
-putEventKind VmDisconnected    = put (100 :: JavaByte)
-putEventKind VmStart           = putEventKind VmInit
-putEventKind ThreadDeath       = putEventKind ThreadEnd
-putEventKind SingleStep        = put (1 :: JavaByte)
-putEventKind Breakpoint        = put (2 :: JavaByte)
-putEventKind FramePop          = put (3 :: JavaByte)
-putEventKind Exception         = put (4 :: JavaByte)
-putEventKind UserDefined       = put (5 :: JavaByte)
-putEventKind ThreadStart       = put (6 :: JavaByte)
-putEventKind ThreadEnd         = put (7 :: JavaByte)
-putEventKind ClassPrepare      = put (8 :: JavaByte)
-putEventKind ClassUnload       = put (9 :: JavaByte)
-putEventKind ClassLoad         = put (10 :: JavaByte)
-putEventKind FieldAccess       = put (20 :: JavaByte)
-putEventKind FieldModification = put (21 :: JavaByte)
-putEventKind ExceptionCatch    = put (30 :: JavaByte)
-putEventKind MethodEntry       = put (40 :: JavaByte)
-putEventKind MethodExit        = put (41 :: JavaByte)
-putEventKind VmInit            = put (90 :: JavaByte)
-putEventKind VmDeath           = put (99 :: JavaByte)
+putEventKind e = put $ numberFromEventKind e
+
+parseEventKind :: Get EventKind
+parseEventKind = eventKindFromNumber <$> (get :: Get JavaByte)
 
 putTypeTag :: TypeTag -> Put
 putTypeTag Class     = put (1 :: JavaByte)
@@ -269,9 +269,6 @@ putEvent :: Event -> Put
 putEvent (VmStartEvent ri ti) = do
     put ri
     put ti
-
-parseEventKind :: Get EventKind
-parseEventKind = eventKindFromNumber <$> (get :: Get JavaByte)
 
 parseSuspendPolicy :: Get SuspendPolicy
 parseSuspendPolicy = suspendPolicyFromNumber <$> (get :: Get JavaByte)
@@ -317,6 +314,7 @@ parseEvent = do
                             <$> parseInt
                             <*> parseThreadId
                             <*> parseTypeTag
+                            <*> parseReferenceTypeId
                             <*> parseString
                             <*> parseClassStatus
         VmInit  -> VmStartEvent <$> parseInt <*> parseThreadId
