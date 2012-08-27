@@ -279,14 +279,9 @@ parseEvent :: Get Event
 parseEvent = do
     eventKind <- parseEventKind
     case eventKind of
-        VmInit -> do
-            requestId <- parseInt
-            threadId <- parseThreadId
-            return $ VmStartEvent requestId threadId
-        VmDeath -> do
-            requestId <- parseInt
-            return $ VmDeathEvent requestId
-        _  -> return NoEvent
+        VmInit  -> VmStartEvent <$> parseInt <*> parseThreadId
+        VmDeath -> VmDeathEvent <$> parseInt
+        _       -> return NoEvent
 
 parseThreadId :: Get JavaThreadId
 parseThreadId = get
