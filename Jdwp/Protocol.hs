@@ -143,6 +143,13 @@ data Event = VmStartEvent
            | VmDeathEvent
                 { requestId :: JavaInt
                 }
+           | ClassPrepareEvent
+                { requestId   :: JavaInt
+                , threadId    :: JavaThreadId
+                , refTypeTag  :: TypeTag
+                , signature   :: JavaString
+                , classStatus :: ClassStatus
+                }
            | NoEvent
              deriving (Show, Eq)
 
@@ -173,6 +180,14 @@ data SuspendPolicy = None
                    | All
                      deriving (Eq, Show)
 
+data TypeTag = Class
+             | Interface
+             | Array
+               deriving (Eq, Show)
+
+newtype ClassStatus = ClassStatus JavaInt
+                      deriving (Eq, Show)
+
 eventKindFromNumber :: JavaByte -> EventKind
 eventKindFromNumber 1   = SingleStep
 eventKindFromNumber 2   = Breakpoint
@@ -198,10 +213,18 @@ suspendPolicyFromNumber 0 = None
 suspendPolicyFromNumber 1 = EventThread
 suspendPolicyFromNumber 2 = All
 
+tagTypeFromNumber :: JavaByte -> TypeTag
+tagTypeFromNumber 1 = Class
+tagTypeFromNumber 2 = Interface
+tagTypeFromNumber 3 = Array
+
 putSuspendPolicy :: SuspendPolicy -> Put
 putSuspendPolicy None        = put (0 :: JavaByte)
 putSuspendPolicy EventThread = put (1 :: JavaByte)
 putSuspendPolicy All         = put (2 :: JavaByte)
+
+putClassStatus :: ClassStatus -> Put
+putClassStatus (ClassStatus v) = put v
 
 putEventKind :: EventKind -> Put
 putEventKind VmDisconnected    = put (100 :: JavaByte)
@@ -225,6 +248,11 @@ putEventKind MethodExit        = put (41 :: JavaByte)
 putEventKind VmInit            = put (90 :: JavaByte)
 putEventKind VmDeath           = put (99 :: JavaByte)
 
+putTypeTag :: TypeTag -> Put
+putTypeTag Class     = put (1 :: JavaByte)
+putTypeTag Interface = put (2 :: JavaByte)
+putTypeTag Array     = put (3 :: JavaByte)
+
 putPacketData :: PacketData -> Put
 putPacketData (EventSet sp e) = do
     putSuspendPolicy sp
@@ -247,6 +275,12 @@ parseEventKind = eventKindFromNumber <$> (get :: Get JavaByte)
 
 parseSuspendPolicy :: Get SuspendPolicy
 parseSuspendPolicy = suspendPolicyFromNumber <$> (get :: Get JavaByte)
+
+parseTypeTag :: Get TypeTag
+parseTypeTag = tagTypeFromNumber <$> (get :: Get JavaByte)
+
+parseClassStatus :: Get ClassStatus
+parseClassStatus = ClassStatus <$> get
 
 parseIdSizesReply :: Get PacketData
 parseIdSizesReply = IdSizesReply
@@ -279,6 +313,12 @@ parseEvent :: Get Event
 parseEvent = do
     eventKind <- parseEventKind
     case eventKind of
+        ClassPrepare -> ClassPrepareEvent
+                            <$> parseInt
+                            <*> parseThreadId
+                            <*> parseTypeTag
+                            <*> parseString
+                            <*> parseClassStatus
         VmInit  -> VmStartEvent <$> parseInt <*> parseThreadId
         VmDeath -> VmDeathEvent <$> parseInt
         _       -> return NoEvent
