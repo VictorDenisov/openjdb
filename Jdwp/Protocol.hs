@@ -277,13 +277,13 @@ parseEventSet = do
 
 parseEvent :: Get Event
 parseEvent = do
-    eventKind <- (get :: Get Word8)
+    eventKind <- parseEventKind
     case eventKind of
-        90 -> do
+        VmInit -> do
             requestId <- parseInt
             threadId <- parseThreadId
             return $ VmStartEvent requestId threadId
-        99 -> do
+        VmDeath -> do
             requestId <- parseInt
             return $ VmDeathEvent requestId
         _  -> return NoEvent
