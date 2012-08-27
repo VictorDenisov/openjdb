@@ -121,6 +121,11 @@ processCommand h cntr "show idsizes" = do
     is <- getIdSizes
     liftIO $ putStrLn $ show is
 
+processCommand h cntr "set" = do
+    liftIO $ sendPacket h $ eventSetRequest cntr ClassPrepare All
+    r <- liftIO $ waitReply h $ \_ -> parseEventSetRequestReply
+    liftIO $ putStrLn $ show r
+
 processCommand _ _ cmd = liftIO $
     putStrLn ("Hello from processCommand " ++ cmd)
 
