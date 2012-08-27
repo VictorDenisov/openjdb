@@ -1,2 +1,2 @@
-- add parsing empty data if reply has errors.
+- specify exact behaviour if there is a error in Reply.
 - add parametrization of ID type parsers. like parseReferenceTypeId.

@@ -46,7 +46,9 @@ parsePacket replyDataParser = do
         return (CommandPacket l i f cs c d)
     else do
         e <- get
-        d <- replyDataParser i
+        d <- case e of
+            0 -> replyDataParser i
+            _ -> parseEmptyData
         return (ReplyPacket l i f e d)
 
 parseList :: Word32 -> Get a -> Get [a]
