@@ -226,10 +226,21 @@ numberFromEventKind e = case find ((== e) . snd) eventKindNumberList of
                             Just (n, _) -> n
                             Nothing     -> error $ "eventKindNumberList doesn't have EventKind " ++ (show e)
 
+suspendPolicyNumberList :: [(JavaByte, SuspendPolicy)]
+suspendPolicyNumberList = [ (0, None)
+                          , (1, EventThread)
+                          , (2, All)
+                          ]
+
 suspendPolicyFromNumber :: JavaByte -> SuspendPolicy
-suspendPolicyFromNumber 0 = None
-suspendPolicyFromNumber 1 = EventThread
-suspendPolicyFromNumber 2 = All
+suspendPolicyFromNumber n = case find ((== n) . fst) suspendPolicyNumberList of
+                                Just (_, v) -> v
+                                Nothing     -> error $ "Number " ++ (show n) ++ " doesn't match any eventKind"
+
+numberFromSuspendPolicy :: SuspendPolicy -> JavaByte
+numberFromSuspendPolicy s = case find ((== s) . snd) suspendPolicyNumberList of
+                                Just (n, _) -> n
+                                Nothing     -> error $ "suspendPlicyNumberList doesn't have SuspendPolicy " ++ (show s)
 
 tagTypeFromNumber :: JavaByte -> TypeTag
 tagTypeFromNumber 1 = Class
@@ -237,9 +248,7 @@ tagTypeFromNumber 2 = Interface
 tagTypeFromNumber 3 = Array
 
 putSuspendPolicy :: SuspendPolicy -> Put
-putSuspendPolicy None        = put (0 :: JavaByte)
-putSuspendPolicy EventThread = put (1 :: JavaByte)
-putSuspendPolicy All         = put (2 :: JavaByte)
+putSuspendPolicy s = put $ numberFromSuspendPolicy s
 
 putClassStatus :: ClassStatus -> Put
 putClassStatus (ClassStatus v) = put v
