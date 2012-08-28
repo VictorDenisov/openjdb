@@ -1,3 +1,2 @@
 - specify exact behaviour if there is a error in Reply.
 - add parametrization of ID type parsers. like parseReferenceTypeId.
-- add mapping list for all enum types.

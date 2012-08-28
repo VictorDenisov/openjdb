@@ -195,6 +195,16 @@ data TypeTag = Class
 newtype ClassStatus = ClassStatus JavaInt
                       deriving (Eq, Show)
 
+fromNumber :: [(JavaByte, a)] -> JavaByte -> a
+fromNumber list n = case find ((== n) . fst) list of
+                            Just (_, v)  -> v
+                            Nothing -> error $ "Number " ++ (show n) ++ " doesn't match any value from list"
+
+toNumber :: (Eq a, Show a) => [(JavaByte, a)] -> a -> JavaByte
+toNumber list e = case find ((== e) . snd) list of
+                            Just (n, _) -> n
+                            Nothing     -> error $ "list doesn't have value " ++ (show e)
+
 eventKindNumberList :: [(JavaByte, EventKind)]
 eventKindNumberList = [ (  1, SingleStep)
                       , (  2, Breakpoint)
@@ -217,14 +227,10 @@ eventKindNumberList = [ (  1, SingleStep)
                       ]
 
 eventKindFromNumber :: JavaByte -> EventKind
-eventKindFromNumber n = case find ((== n) . fst) eventKindNumberList of
-                            Just (_, v)  -> v
-                            Nothing -> error $ "Number " ++ (show n) ++ " doesn't match any eventKind"
+eventKindFromNumber = fromNumber eventKindNumberList
 
 numberFromEventKind :: EventKind -> JavaByte
-numberFromEventKind e = case find ((== e) . snd) eventKindNumberList of
-                            Just (n, _) -> n
-                            Nothing     -> error $ "eventKindNumberList doesn't have EventKind " ++ (show e)
+numberFromEventKind = toNumber eventKindNumberList
 
 suspendPolicyNumberList :: [(JavaByte, SuspendPolicy)]
 suspendPolicyNumberList = [ (0, None)
@@ -233,19 +239,22 @@ suspendPolicyNumberList = [ (0, None)
                           ]
 
 suspendPolicyFromNumber :: JavaByte -> SuspendPolicy
-suspendPolicyFromNumber n = case find ((== n) . fst) suspendPolicyNumberList of
-                                Just (_, v) -> v
-                                Nothing     -> error $ "Number " ++ (show n) ++ " doesn't match any eventKind"
+suspendPolicyFromNumber = fromNumber suspendPolicyNumberList
 
 numberFromSuspendPolicy :: SuspendPolicy -> JavaByte
-numberFromSuspendPolicy s = case find ((== s) . snd) suspendPolicyNumberList of
-                                Just (n, _) -> n
-                                Nothing     -> error $ "suspendPlicyNumberList doesn't have SuspendPolicy " ++ (show s)
+numberFromSuspendPolicy = toNumber suspendPolicyNumberList
 
-tagTypeFromNumber :: JavaByte -> TypeTag
-tagTypeFromNumber 1 = Class
-tagTypeFromNumber 2 = Interface
-tagTypeFromNumber 3 = Array
+typeTagNumberList :: [(JavaByte, TypeTag)]
+typeTagNumberList = [ (1, Class)
+                    , (2, Interface)
+                    , (3, Array)
+                    ]
+
+typeTagFromNumber :: JavaByte -> TypeTag
+typeTagFromNumber = fromNumber typeTagNumberList
+
+numberFromTypeTag :: TypeTag -> JavaByte
+numberFromTypeTag = toNumber typeTagNumberList
 
 putSuspendPolicy :: SuspendPolicy -> Put
 putSuspendPolicy s = put $ numberFromSuspendPolicy s
@@ -260,9 +269,7 @@ parseEventKind :: Get EventKind
 parseEventKind = eventKindFromNumber <$> (get :: Get JavaByte)
 
 putTypeTag :: TypeTag -> Put
-putTypeTag Class     = put (1 :: JavaByte)
-putTypeTag Interface = put (2 :: JavaByte)
-putTypeTag Array     = put (3 :: JavaByte)
+putTypeTag t = put $ numberFromTypeTag t
 
 putPacketData :: PacketData -> Put
 putPacketData (EventSet sp e) = do
@@ -285,7 +292,7 @@ parseSuspendPolicy :: Get SuspendPolicy
 parseSuspendPolicy = suspendPolicyFromNumber <$> (get :: Get JavaByte)
 
 parseTypeTag :: Get TypeTag
-parseTypeTag = tagTypeFromNumber <$> (get :: Get JavaByte)
+parseTypeTag = typeTagFromNumber <$> (get :: Get JavaByte)
 
 parseClassStatus :: Get ClassStatus
 parseClassStatus = ClassStatus <$> get
