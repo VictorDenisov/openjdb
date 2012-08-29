@@ -9,7 +9,7 @@ import Control.Monad (liftM)
 import Jdwp.Protocol
 
 data Configuration = Configuration
-    { idSizes        :: IdSizes
+    { idSizes        :: PacketData
     , packetIdCounter :: PacketId
     , replyParsers   :: M.Map PacketId ReplyDataParser
     }
@@ -22,19 +22,11 @@ instance Eq Configuration where
 instance Show Configuration where
     show c = (show $ idSizes c) ++ " " ++ (show $ packetIdCounter c)
 
-data IdSizes = IdSizes
-    { fieldIdSizeConf         :: JavaInt
-    , methodIdSizeConf        :: JavaInt
-    , objectIdSizeConf        :: JavaInt
-    , referenceTypeIdSizeConf :: JavaInt
-    , frameIdSizeConf         :: JavaInt
-    } deriving (Eq, Show)
-
 type ConfT = StateT Configuration
 
 type Conf  = ConfT Identity
 
-initConf = Configuration (IdSizes 0 0 0 0 0) 0 M.empty
+initConf = Configuration (IdSizesReply 0 0 0 0 0) 0 M.empty
 
 runConfT = runStateT
 
@@ -53,10 +45,10 @@ incPacketIdCounter = do
     s <- get
     put $ s { packetIdCounter = (packetIdCounter s) + 1 }
 
-setIdSizes :: Monad m => IdSizes -> ConfT m ()
+setIdSizes :: Monad m => PacketData -> ConfT m ()
 setIdSizes iss = do
     s <- get
     put $ s { idSizes = iss }
 
-getIdSizes :: Monad m => ConfT m IdSizes
+getIdSizes :: Monad m => ConfT m PacketData
 getIdSizes = liftM idSizes get

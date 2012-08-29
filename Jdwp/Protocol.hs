@@ -106,8 +106,12 @@ parseString = do
     list <- parseList len (get :: Get Word8)
     return $ B8.unpack $ B.pack list
 
-parseReferenceTypeId :: Get JavaReferenceTypeId
-parseReferenceTypeId = get
+parseReferenceTypeId :: JavaInt -> Get JavaReferenceTypeId
+parseReferenceTypeId 1 = fromIntegral <$> (get :: Get Word8)
+parseReferenceTypeId 2 = fromIntegral <$> (get :: Get Word16)
+parseReferenceTypeId 4 = fromIntegral <$> (get :: Get Word32)
+parseReferenceTypeId 8 = fromIntegral <$> (get :: Get Word64)
+parseReferenceTypeId s = error $ "Currently we can not process values of this size: " ++ (show s)
 -- }}}
 -------PacketData parsing section---------------------
 -- {{{
@@ -142,7 +146,7 @@ data PacketData = EventSet
                     { requestIdReply :: JavaInt
                     }
                 | EmptyPacketData
-                  deriving Show
+                  deriving (Eq, Show)
 
 data Event = VmStartEvent
                 { requestId :: JavaInt
@@ -340,7 +344,7 @@ parseEvent = do
                             <$> parseInt
                             <*> parseThreadId
                             <*> parseTypeTag
-                            <*> parseReferenceTypeId
+                            <*> (parseReferenceTypeId 8)
                             <*> parseString
                             <*> parseClassStatus
         VmInit  -> VmStartEvent <$> parseInt <*> parseThreadId
