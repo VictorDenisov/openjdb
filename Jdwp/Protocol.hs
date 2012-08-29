@@ -111,6 +111,8 @@ parseReferenceTypeId = get
 -- }}}
 -------PacketData parsing section---------------------
 -- {{{
+-- PacketData components declaration.
+---- {{{
 data PacketData = EventSet
                     { suspendPolicy :: SuspendPolicy
                     , events        :: [Event]
@@ -255,21 +257,36 @@ typeTagFromNumber = fromNumber typeTagNumberList
 
 numberFromTypeTag :: TypeTag -> JavaByte
 numberFromTypeTag = toNumber typeTagNumberList
-
+-- }}}
+-- Parsing and putting functions
+---- {{{
+--- SuspendPolicy
 putSuspendPolicy :: SuspendPolicy -> Put
 putSuspendPolicy s = put $ numberFromSuspendPolicy s
 
+parseSuspendPolicy :: Get SuspendPolicy
+parseSuspendPolicy = suspendPolicyFromNumber <$> (get :: Get JavaByte)
+
+--- ClassStatus
 putClassStatus :: ClassStatus -> Put
 putClassStatus (ClassStatus v) = put v
 
+parseClassStatus :: Get ClassStatus
+parseClassStatus = ClassStatus <$> get
+
+--- EventKind
 putEventKind :: EventKind -> Put
 putEventKind e = put $ numberFromEventKind e
 
 parseEventKind :: Get EventKind
 parseEventKind = eventKindFromNumber <$> (get :: Get JavaByte)
 
+--- TypeTag
 putTypeTag :: TypeTag -> Put
 putTypeTag t = put $ numberFromTypeTag t
+
+parseTypeTag :: Get TypeTag
+parseTypeTag = typeTagFromNumber <$> (get :: Get JavaByte)
 
 putPacketData :: PacketData -> Put
 putPacketData (EventSet sp e) = do
@@ -287,15 +304,6 @@ putEvent :: Event -> Put
 putEvent (VmStartEvent ri ti) = do
     put ri
     put ti
-
-parseSuspendPolicy :: Get SuspendPolicy
-parseSuspendPolicy = suspendPolicyFromNumber <$> (get :: Get JavaByte)
-
-parseTypeTag :: Get TypeTag
-parseTypeTag = typeTagFromNumber <$> (get :: Get JavaByte)
-
-parseClassStatus :: Get ClassStatus
-parseClassStatus = ClassStatus <$> get
 
 parseIdSizesReply :: Get PacketData
 parseIdSizesReply = IdSizesReply
@@ -344,7 +352,7 @@ parseThreadId = get
 
 parseEmptyData :: Get PacketData
 parseEmptyData = return EmptyPacketData
-
+-- }}}
 data DataParser = DataParser
                 { commandParser :: Get PacketData
                 , replyParser   :: Get PacketData
