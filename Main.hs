@@ -80,7 +80,6 @@ mainLoop h = do
                 Nothing -> return ()
                 Just "quit" -> return ()
                 Just input -> do
-                    lift $ outputStrLn $ "Input was: " ++ input
                     cntr <- getPacketIdCounter
                     incPacketIdCounter
                     processCommand h cntr input
@@ -137,7 +136,7 @@ processCommand h cntr "set" = do
     liftIO $ putStrLn $ show r
 
 processCommand _ _ cmd = liftIO $
-    putStrLn ("Hello from processCommand " ++ cmd)
+    putStrLn ("Unknown command sequence: " ++ cmd)
 
 receivePacket :: Handle -> IdSizes -> ReplyDataParser -> IO Packet
 receivePacket h idsizes f = do
