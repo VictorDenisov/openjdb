@@ -124,8 +124,7 @@ processCommand h cntr "idsizes" = do
     idsizes <- getIdSizes
     r <- liftIO $ waitReply h idsizes $ \_ -> parseIdSizesReply idsizes
     liftIO $ putStrLn $ show r
-    let p = idSizes $ dat r
-    setIdSizes $ IdSizes (fieldIdSize p) (methodIdSize p) (objectIdSize p) (referenceTypeIdSize p) (frameIdSize p)
+    setIdSizes $ idSizes $ dat r
 
 processCommand h cntr "show idsizes" = do
     is <- getIdSizes
