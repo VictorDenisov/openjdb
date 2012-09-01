@@ -88,16 +88,17 @@ mainLoop h = do
 
 handshake :: Handle -> IO ()
 handshake h = do
-    putStrLn "After connect"
+    putStrLn "Connected. Initiating handshake..."
     hPutStr h "JDWP-Handshake"
     hFlush h
     value <- B.hGet h 14
     if value == (B8.pack "JDWP-Handshake")
-    then putStrLn "Successfull handshake"
+    then putStrLn "Handshake successful."
     else putStrLn "Handshake FAILED!"
 
 initialSetup :: Handle -> ConfT (InputT IO) ()
 initialSetup h = do
+    liftIO $ putStrLn "Sending id sizes request..."
     cntr <- getPacketIdCounter
     incPacketIdCounter
     processCommand h cntr "idsizes"
@@ -143,10 +144,9 @@ receivePacket :: Handle -> IdSizes -> ReplyDataParser -> IO Packet
 receivePacket h idsizes f = do
     inputAvailable <- hWaitForInput h (-1)
     if inputAvailable
-    then do putStrLn "Input is available"
+    then do putStrLn "Receiving a packet..."
             lengthString <- B.hGet h 4
             let length = (fromIntegral $ runGet (parseInt) lengthString) - 4
-            putStrLn $ show length
             reminder <- B.hGet h length
             let p = runGet (parsePacket idsizes f) (lengthString `B.append` reminder)
             return p
@@ -177,10 +177,9 @@ waitVmStartEvent :: Handle -> IO Packet
 waitVmStartEvent h = do
     inputAvailable <- hWaitForInput h (-1)
     if inputAvailable
-    then do putStrLn "Input is available"
+    then do putStrLn "Waiting for VmStartEvent"
             lengthString <- B.hGet h 4
             let length = (fromIntegral $ runGet (parseInt) lengthString) - 4
-            putStrLn $ show length
             reminder <- B.hGet h length
             let threadIdSize = fromIntegral $ (length + 4) - 21
             let replyParser = \_ -> error "ReplyDataParser is not expected to be invoked."
