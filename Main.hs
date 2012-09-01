@@ -66,22 +66,12 @@ main = do
               then bracket (openConnection (getHost opts) (getPort opts)) hClose mainLoop
               else putStrLn "Host and port arguments are required"
 
-handshake :: Handle -> IO ()
-handshake h = do
-    putStrLn "After connect"
-    hPutStr h "JDWP-Handshake"
-    hFlush h
-    value <- B.hGet h 14
-    if value == (B8.pack "JDWP-Handshake")
-    then putStrLn "Successfull handshake"
-    else putStrLn "Handshake FAILED!"
-
 mainLoop :: Handle -> IO ()
 mainLoop h = do
     handshake h
     packet <- waitVmStartEvent h
     putStrLn $ show packet
-    runInputT defaultSettings $ evalConfT loop initConf
+    runInputT defaultSettings $ evalConfT (initialSetup h >> loop) initConf
     where 
         loop :: ConfT (InputT IO) ()
         loop = do
@@ -95,6 +85,22 @@ mainLoop h = do
                     incPacketIdCounter
                     processCommand h cntr input
                     loop
+
+handshake :: Handle -> IO ()
+handshake h = do
+    putStrLn "After connect"
+    hPutStr h "JDWP-Handshake"
+    hFlush h
+    value <- B.hGet h 14
+    if value == (B8.pack "JDWP-Handshake")
+    then putStrLn "Successfull handshake"
+    else putStrLn "Handshake FAILED!"
+
+initialSetup :: Handle -> ConfT (InputT IO) ()
+initialSetup h = do
+    cntr <- getPacketIdCounter
+    incPacketIdCounter
+    processCommand h cntr "idsizes"
 
 processCommand :: Handle -> PacketId -> String -> ConfT (InputT IO) ()
 processCommand h cntr "version" = do
