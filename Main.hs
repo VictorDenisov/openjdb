@@ -79,7 +79,7 @@ handshake h = do
 mainLoop :: Handle -> IO ()
 mainLoop h = do
     handshake h
-    packet <- waitEvent h -- receive VmStartEvent
+    packet <- waitVmStartEvent h
     putStrLn $ show packet
     runInputT defaultSettings $ evalConfT loop initConf
     where 
@@ -100,22 +100,25 @@ processCommand :: Handle -> PacketId -> String -> ConfT (InputT IO) ()
 processCommand h cntr "version" = do
     liftIO $ sendPacket h $ versionCommand cntr
     liftIO $ putStrLn "version request sent"
-    p <- liftIO $ waitReply h $ \_ -> parseVersionReply
+    idsizes <- getIdSizes
+    p <- liftIO $ waitReply h idsizes $ \_ -> parseVersionReply idsizes
     liftIO $ putStrLn $ show p
 
 processCommand h cntr "resume" = do
     liftIO $ sendPacket h $ resumeVmCommand cntr
-    r <- liftIO $ waitReply h $ \_ -> parseEmptyData
+    idsizes <- getIdSizes
+    r <- liftIO $ waitReply h idsizes $ \_ -> parseEmptyData idsizes
     liftIO $ putStrLn $ show r
-    e <- liftIO $ waitEvent h
+    e <- liftIO $ waitEvent h idsizes
     liftIO $ putStrLn $ show e
 
 processCommand h cntr "idsizes" = do
     liftIO $ sendPacket h $ idSizesCommand cntr
-    r <- liftIO $ waitReply h $ \_ -> parseIdSizesReply
+    idsizes <- getIdSizes
+    r <- liftIO $ waitReply h idsizes $ \_ -> parseIdSizesReply idsizes
     liftIO $ putStrLn $ show r
-    let p = dat r
-    setIdSizes $ IdSizesReply (fieldIdSize p) (methodIdSize p) (objectIdSize p) (referenceTypeIdSize p) (frameIdSize p)
+    let p = idSizes $ dat r
+    setIdSizes $ IdSizes (fieldIdSize p) (methodIdSize p) (objectIdSize p) (referenceTypeIdSize p) (frameIdSize p)
 
 processCommand h cntr "show idsizes" = do
     is <- getIdSizes
@@ -123,14 +126,15 @@ processCommand h cntr "show idsizes" = do
 
 processCommand h cntr "set" = do
     liftIO $ sendPacket h $ eventSetRequest cntr ClassPrepare All
-    r <- liftIO $ waitReply h $ \_ -> parseEventSetRequestReply
+    idsizes <- getIdSizes
+    r <- liftIO $ waitReply h idsizes $ \_ -> parseEventSetRequestReply idsizes
     liftIO $ putStrLn $ show r
 
 processCommand _ _ cmd = liftIO $
     putStrLn ("Hello from processCommand " ++ cmd)
 
-receivePacket :: Handle -> ReplyDataParser -> IO Packet
-receivePacket h f = do
+receivePacket :: Handle -> IdSizes -> ReplyDataParser -> IO Packet
+receivePacket h idsizes f = do
     inputAvailable <- hWaitForInput h (-1)
     if inputAvailable
     then do putStrLn "Input is available"
@@ -138,13 +142,13 @@ receivePacket h f = do
             let length = (fromIntegral $ runGet (parseInt) lengthString) - 4
             putStrLn $ show length
             reminder <- B.hGet h length
-            let p = runGet (parsePacket f) (lengthString `B.append` reminder)
+            let p = runGet (parsePacket idsizes f) (lengthString `B.append` reminder)
             return p
     else error "No input available where expected"
 
-waitReply :: Handle -> ReplyDataParser -> IO Packet
-waitReply h f = do
-    packet <- receivePacket h f
+waitReply :: Handle -> IdSizes -> ReplyDataParser -> IO Packet
+waitReply h idsizes f = do
+    packet <- receivePacket h idsizes f
     case packet of
         CommandPacket _ _ _ _ _ _ -> error "reply expected, but command received"
         {- Normally here some queue should be implemented, but currectly for brevity
@@ -152,12 +156,32 @@ waitReply h f = do
          -}
         ReplyPacket _ _ _ _ _ -> return packet
 
-waitEvent :: Handle -> IO Packet
-waitEvent h = do
-    packet <- receivePacket h $ \_ -> error "ReplyDataParser is invoked where only command parsing is expected"
+waitEvent :: Handle -> IdSizes -> IO Packet
+waitEvent h idsizes = do
+    packet <- receivePacket h idsizes $ \_ -> error "ReplyDataParser is invoked where only command parsing is expected"
     case packet of
         CommandPacket _ _ _ _ _ _ -> return packet
         ReplyPacket _ _ _ _ _ -> error "CommandPacket is expected, but reply packet received"
+        
+-- When we parse this event we don't have information about size of threadId.
+-- We use the fact that threadId is the last field in the event and we can determine its size
+-- as request_length - length_of_fields_before_threadId.
+-- for current version of JDWP length_of_fields_before_threadIs is 21.
+waitVmStartEvent :: Handle -> IO Packet
+waitVmStartEvent h = do
+    inputAvailable <- hWaitForInput h (-1)
+    if inputAvailable
+    then do putStrLn "Input is available"
+            lengthString <- B.hGet h 4
+            let length = (fromIntegral $ runGet (parseInt) lengthString) - 4
+            putStrLn $ show length
+            reminder <- B.hGet h length
+            let threadIdSize = fromIntegral $ (length + 4) - 21
+            let replyParser = \_ -> error "ReplyDataParser is not expected to be invoked."
+            let p = runGet (parsePacket (IdSizes 0 0 threadIdSize 0 0) replyParser) (lengthString `B.append` reminder)
+            return p
+    else error "No input available where expected"
+    
 
 sendPacket :: Handle -> Packet -> IO ()
 sendPacket h p = do

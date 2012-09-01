@@ -33,8 +33,8 @@ data Packet = CommandPacket { length     :: Word32
 
 type ReplyDataParser = PacketId -> Get PacketData
 
-parsePacket :: ReplyDataParser -> Get Packet
-parsePacket replyDataParser = do
+parsePacket :: IdSizes -> ReplyDataParser -> Get Packet
+parsePacket idsizes replyDataParser = do
     l <- get
     i <- get
     f <- get
@@ -42,13 +42,13 @@ parsePacket replyDataParser = do
     then do
         cs <- get
         c  <- get
-        d  <- commandParser $ dataParsers (cs, c)
+        d  <- (commandParser $ dataParsers (cs, c)) idsizes
         return (CommandPacket l i f cs c d)
     else do
         e <- get
         d <- case e of
             0 -> replyDataParser i
-            _ -> parseEmptyData
+            _ -> parseEmptyData idsizes
         return (ReplyPacket l i f e d)
 
 parseList :: Word32 -> Get a -> Get [a]
@@ -112,6 +112,14 @@ parseReferenceTypeId 2 = fromIntegral <$> (get :: Get Word16)
 parseReferenceTypeId 4 = fromIntegral <$> (get :: Get Word32)
 parseReferenceTypeId 8 = fromIntegral <$> (get :: Get Word64)
 parseReferenceTypeId s = error $ "Currently we can not process values of this size: " ++ (show s)
+
+parseThreadId :: JavaInt -> Get JavaThreadId
+parseThreadId 1 = fromIntegral <$> (get :: Get Word8)
+parseThreadId 2 = fromIntegral <$> (get :: Get Word16)
+parseThreadId 4 = fromIntegral <$> (get :: Get Word32)
+parseThreadId 8 = fromIntegral <$> (get :: Get Word64)
+parseThreadId s = error $ "Currently we can not process values of this size: " ++ (show s)
+
 -- }}}
 -------PacketData parsing section---------------------
 -- {{{
@@ -129,11 +137,7 @@ data PacketData = EventSet
                     , vmName      :: JavaString
                     }
                 | IdSizesReply
-                    { fieldIdSize         :: JavaInt
-                    , methodIdSize        :: JavaInt
-                    , objectIdSize        :: JavaInt
-                    , referenceTypeIdSize :: JavaInt
-                    , frameIdSize         :: JavaInt
+                    { idSizes :: IdSizes
                     }
                 | ThreadIdPacketData
                     { tId :: JavaThreadId
@@ -147,6 +151,17 @@ data PacketData = EventSet
                     }
                 | EmptyPacketData
                   deriving (Eq, Show)
+
+data IdSizes = IdSizes
+                    { fieldIdSize         :: JavaInt
+                    , methodIdSize        :: JavaInt
+                    , objectIdSize        :: JavaInt
+                    , referenceTypeIdSize :: JavaInt
+                    , frameIdSize         :: JavaInt
+                    } deriving (Eq, Show)
+
+threadIdSize :: IdSizes -> JavaInt
+threadIdSize is = objectIdSize is
 
 data Event = VmStartEvent
                 { requestId :: JavaInt
@@ -309,57 +324,54 @@ putEvent (VmStartEvent ri ti) = do
     put ri
     put ti
 
-parseIdSizesReply :: Get PacketData
-parseIdSizesReply = IdSizesReply
+parseIdSizesReply :: IdSizes -> Get PacketData
+parseIdSizesReply _ = IdSizesReply <$> (IdSizes
                         <$> parseInt
                         <*> parseInt
                         <*> parseInt
                         <*> parseInt
-                        <*> parseInt
+                        <*> parseInt)
 
-parseVersionReply :: Get PacketData
-parseVersionReply = VersionReply
+parseVersionReply :: IdSizes -> Get PacketData
+parseVersionReply _ = VersionReply
                         <$> parseString
                         <*> parseInt
                         <*> parseInt
                         <*> parseString
                         <*> parseString
 
-parseEventSetRequestReply :: Get PacketData
-parseEventSetRequestReply = EventRequestSetReply
+parseEventSetRequestReply :: IdSizes -> Get PacketData
+parseEventSetRequestReply _ = EventRequestSetReply
                         <$> parseInt
 
-parseEventSet :: Get PacketData
-parseEventSet = do
+parseEventSet :: IdSizes -> Get PacketData
+parseEventSet idsizes = do
     sp <- parseSuspendPolicy
     eventCount <- parseInt
-    eventList <- parseList eventCount parseEvent
+    eventList <- parseList eventCount (parseEvent idsizes)
     return $ EventSet sp eventList
 
-parseEvent :: Get Event
-parseEvent = do
+parseEvent :: IdSizes -> Get Event
+parseEvent idsizes = do
     eventKind <- parseEventKind
     case eventKind of
         ClassPrepare -> ClassPrepareEvent
                             <$> parseInt
-                            <*> parseThreadId
+                            <*> (parseThreadId $ threadIdSize idsizes)
                             <*> parseTypeTag
-                            <*> (parseReferenceTypeId 8)
+                            <*> (parseReferenceTypeId $ referenceTypeIdSize idsizes)
                             <*> parseString
                             <*> parseClassStatus
-        VmInit  -> VmStartEvent <$> parseInt <*> parseThreadId
+        VmInit  -> VmStartEvent <$> parseInt <*> (parseThreadId $ threadIdSize idsizes)
         VmDeath -> VmDeathEvent <$> parseInt
         _       -> return NoEvent
 
-parseThreadId :: Get JavaThreadId
-parseThreadId = get
-
-parseEmptyData :: Get PacketData
-parseEmptyData = return EmptyPacketData
+parseEmptyData :: IdSizes -> Get PacketData
+parseEmptyData _ = return EmptyPacketData
 -- }}}
 data DataParser = DataParser
-                { commandParser :: Get PacketData
-                , replyParser   :: Get PacketData
+                { commandParser :: IdSizes -> Get PacketData
+                , replyParser   :: IdSizes -> Get PacketData
                 }
 
 dataParsers :: (CommandSet, Command) -> DataParser

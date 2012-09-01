@@ -1,2 +1,3 @@
 - specify exact behaviour if there is a error in Reply.
 - add parametrization of ID type parsers. like parseReferenceTypeId.
+- idsizes configuration is stored in PacketData type which is confusing.
