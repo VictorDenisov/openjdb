@@ -67,7 +67,7 @@ main = do
                                     evalStateT (runVirtualMachine
                                                     (getHost opts)
                                                     (getPort opts)
-                                                    eventLoop)
+                                                    (initialSetup >> eventLoop))
                                                (DebugConfig [])
                           else putStrLn "Host and port arguments are required"
 
@@ -87,12 +87,25 @@ addBreakpoint s = do
 listBreakpoints :: MonadIO m => Debugger m [Bp]
 listBreakpoints = breakpoints `liftM` get
 
+initialSetup :: VirtualMachine (Debugger (InputT IO)) ()
+initialSetup = do
+    enable createClassPrepareRequest
+    return ()
+
 eventLoop :: VirtualMachine (Debugger (InputT IO)) ()
 eventLoop = do
-    event <- removeEvent
-    liftIO $ putStrLn $ show event
-    commandLoop
-    eventLoop
+    es <- removeEvent
+    let event = head $ events es
+    case eventKind event of
+        ClassPrepare -> do
+            liftIO $ putStrLn "Received ClassPrepare request"
+            liftIO $ putStrLn $ show $ referenceType event
+            resume es
+            eventLoop
+        otherwise -> do
+            liftIO $ putStrLn $ show event
+            commandLoop
+            eventLoop
 
 commandLoop :: VirtualMachine (Debugger (InputT IO)) ()
 commandLoop = do
@@ -125,7 +138,6 @@ processCommand v | take 4 v == "set " = lift $ addBreakpoint (drop 4 v)
 processCommand "list" = do
     bps <- lift $ listBreakpoints
     liftIO $ putStrLn $ show bps
-    
 
 processCommand cmd = liftIO $
     putStrLn ("Unknown command sequence: " ++ cmd)
