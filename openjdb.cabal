@@ -15,9 +15,10 @@ Cabal-version:  >=1.4
 Executable openjdb
         main-is:        Main.hs
         build-depends:  base >= 3 && <= 4.5.0.0
-                     ,  jdi >= 0.0.1
+                     ,  jdi >= 0.0.2
                      ,  binary >= 0.5.1.0
                      ,  bytestring >= 0.9.2.1
                      ,  mtl >= 2.1.2
                      ,  network >= 2.3.0.14
                      ,  haskeline >= 0.7.0.2
+                     ,  transformers >= 0.3.0.0

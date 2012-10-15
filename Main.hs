@@ -8,11 +8,12 @@ import Data.Maybe (fromMaybe)
 import GHC.Word (Word16, Word32, Word8)
 import Network.Socket.Internal (PortNumber(..))
 import Control.Monad.Trans (liftIO, lift)
+import Control.Monad.State (StateT(..), MonadState(..), evalStateT)
+import Control.Monad.IO.Class (MonadIO)
+import Control.Applicative ((<$>))
+import Control.Monad (liftM)
 import qualified Data.ByteString.Lazy as B
 import qualified Data.ByteString.Lazy.Char8 as B8
-import Data.Binary.Get (runGet, Get)
-import Data.Binary.Put (runPut)
-import Data.Binary (get)
 
 import Jdi
 
@@ -62,17 +63,38 @@ main = do
         else if Version `elem` opts
                  then putStrLn "1.0"
                  else if ((isPort `any` opts) && (isHost `any` opts))
-                          then  runInputT defaultSettings $ runVirtualMachine (getHost opts) (getPort opts) eventLoop
+                          then  runInputT defaultSettings $
+                                    evalStateT (runVirtualMachine
+                                                    (getHost opts)
+                                                    (getPort opts)
+                                                    eventLoop)
+                                               (DebugConfig [])
                           else putStrLn "Host and port arguments are required"
 
-eventLoop :: VirtualMachine (InputT IO) ()
+data Bp = Bp String
+          deriving (Show, Eq)
+
+data DebugConfig = DebugConfig
+    { breakpoints :: [Bp] }
+    
+type Debugger = StateT DebugConfig
+
+addBreakpoint :: MonadIO m => String -> Debugger m ()
+addBreakpoint s = do
+    dc <- get
+    put $ dc {breakpoints = Bp s : breakpoints dc}
+
+listBreakpoints :: MonadIO m => Debugger m [Bp]
+listBreakpoints = breakpoints `liftM` get
+
+eventLoop :: VirtualMachine (Debugger (InputT IO)) ()
 eventLoop = do
     event <- removeEvent
     liftIO $ putStrLn $ show event
     commandLoop
     eventLoop
 
-commandLoop :: VirtualMachine (InputT IO) ()
+commandLoop :: VirtualMachine (Debugger (InputT IO)) ()
 commandLoop = do
     minput <- (lift . lift) $ getInputLine "(jdb) "
     case minput of
@@ -85,25 +107,25 @@ commandLoop = do
             processCommand input
             commandLoop
 
-processCommand :: String -> VirtualMachine (InputT IO) ()
+processCommand :: String -> VirtualMachine (Debugger (InputT IO)) ()
 processCommand "version" = do
     p <- version
     liftIO $ putStrLn $ show p
 
 processCommand "resume" = do
-    resume
+    resumeVm
 
 {-
 processCommand "show idsizes" = do
     is <- getIdSizes
     liftIO $ putStrLn $ show is
 
-processCommand "set" = do
-    liftIO $ sendPacket h $ eventSetRequest cntr ClassPrepare All
-    idsizes <- getIdSizes
-    r <- liftIO $ waitReply h idsizes $ \_ -> parseEventSetRequestReply idsizes
-    liftIO $ putStrLn $ show r
     -}
+processCommand v | take 4 v == "set " = lift $ addBreakpoint (drop 4 v)
+processCommand "list" = do
+    bps <- lift $ listBreakpoints
+    liftIO $ putStrLn $ show bps
+    
 
 processCommand cmd = liftIO $
     putStrLn ("Unknown command sequence: " ++ cmd)
