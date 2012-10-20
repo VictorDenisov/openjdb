@@ -1,10 +1,11 @@
 import System.Console.Haskeline
+import System.Console.Haskeline.Completion(CompletionFunc)
 import System.Console.GetOpt (getOpt, ArgOrder(..), OptDescr(..), ArgDescr(..))
 import System.Environment (getArgs)
 import Network
 import GHC.IO.Handle
-import Data.List (intercalate, find)
-import Data.Maybe (fromMaybe)
+import Data.List (intercalate, find, isPrefixOf)
+import Data.Maybe (fromMaybe, fromJust)
 import GHC.Word (Word16, Word32, Word8)
 import Network.Socket.Internal (PortNumber(..))
 import Control.Monad.Trans (liftIO, lift)
@@ -15,6 +16,7 @@ import Control.Monad (liftM)
 import qualified Data.ByteString.Lazy as B
 import qualified Data.ByteString.Lazy.Char8 as B8
 import Text.ParserCombinators.Parsec
+import Text.ParserCombinators.Parsec.Char
 
 import Jdi
 
@@ -49,6 +51,15 @@ getPort opts = PortNumber $ fromIntegral $ ((read $ port $ fromMaybe (Port "2044
 getHost :: [Flag] -> String
 getHost opts = host $ fromMaybe (Host "localhost") (find isHost opts)
 
+cmdList = ["quit", "version", "breakpoint", "next", "continue", "print"]
+
+commandLineComplete :: MonadIO m => CompletionFunc m
+commandLineComplete (leftLine, _) = do
+    return ("", ncl)
+    where
+        ncl = map (\name -> Completion name name True) $ filter (line `isPrefixOf`) cmdList
+        line = reverse leftLine
+
 main :: IO ()
 main = do
     args <- getArgs
@@ -58,7 +69,7 @@ main = do
         else if Version `elem` opts
                  then putStrLn "1.0"
                  else if ((isPort `any` opts) && (isHost `any` opts))
-                          then  runInputT defaultSettings $
+                          then  runInputT (Settings commandLineComplete Nothing True) $
                                     evalStateT (runVirtualMachine
                                                     (getHost opts)
                                                     (getPort opts)
@@ -102,37 +113,59 @@ eventLoop = do
             commandLoop
             eventLoop
 
-commandLoop :: VirtualMachine (Debugger (InputT IO)) ()
+commandLoop :: MonadException m => VirtualMachine (Debugger (InputT m)) ()
 commandLoop = do
     minput <- (lift . lift) $ getInputLine "(jdb) "
     case minput of
         Nothing -> return ()
-        Just "quit" -> return ()
-        Just "resume" -> do
-            processCommand "resume"
-            return ()
-        Just input -> do
-            processCommand input
-            commandLoop
+        Just input -> 
+            case parseCommand (fromJust minput) of
+                QuitCommand -> return ()
+                VersionCommand -> do
+                    p <- version
+                    lift . lift . outputStrLn $ show p
+                    commandLoop
+                ContinueCommand ->
+                    resumeVm
+                UnknownCommand error -> do
+                    lift . lift . outputStrLn $ "Error during parsing the command:"
+                    commandLoop
 
-processCommand :: String -> VirtualMachine (Debugger (InputT IO)) ()
-processCommand "version" = do
-    p <- version
-    liftIO $ putStrLn $ show p
+data Command = VersionCommand
+             | ContinueCommand
+             | BreakpointLineCommand String Int -- class line
+             | BreakpointMethodCommand String String -- class method
+             | QuitCommand
+             | UnknownCommand ParseError
+               deriving Show
 
-processCommand "resume" = do
-    resumeVm
+parseCommand :: String -> Command
+parseCommand input = case parse commandParser "(unknown)" input of
+    Left parseError -> UnknownCommand parseError
+    Right command -> command
+
+commandParser :: CharParser st Command
+commandParser =
+    parseVersion <|> parseContinue <|> parseQuit
+
+parseVersion :: CharParser st Command
+parseVersion = do
+    string "version"
+    return VersionCommand
+
+parseContinue :: CharParser st Command
+parseContinue = do
+    string "continue"
+    return ContinueCommand
+
+parseQuit :: CharParser st Command
+parseQuit = do
+    string "quit"
+    return QuitCommand
 
 {-
-processCommand "show idsizes" = do
-    is <- getIdSizes
-    liftIO $ putStrLn $ show is
-
-    -}
 processCommand v | take 4 v == "set " = lift $ addBreakpoint (drop 4 v)
 processCommand "list" = do
     bps <- lift $ listBreakpoints
     liftIO $ putStrLn $ show bps
-
-processCommand cmd = liftIO $ do
-    putStrLn ("Unknown command sequence: " ++ cmd)
+    -}
