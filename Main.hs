@@ -14,14 +14,9 @@ import Control.Applicative ((<$>))
 import Control.Monad (liftM)
 import qualified Data.ByteString.Lazy as B
 import qualified Data.ByteString.Lazy.Char8 as B8
+import Text.ParserCombinators.Parsec
 
 import Jdi
-
-openConnection :: String -> PortID -> IO Handle
-openConnection host port = do
-    h <- connectTo host port
-    hSetBinaryMode h True
-    return h
 
 data Flag = Version
           | Port { port :: String }
@@ -139,6 +134,5 @@ processCommand "list" = do
     bps <- lift $ listBreakpoints
     liftIO $ putStrLn $ show bps
 
-processCommand cmd = liftIO $
+processCommand cmd = liftIO $ do
     putStrLn ("Unknown command sequence: " ++ cmd)
-
