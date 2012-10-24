@@ -11,8 +11,8 @@ import Network.Socket.Internal (PortNumber(..))
 import Control.Monad.Trans (liftIO, lift)
 import Control.Monad.State (StateT(..), MonadState(..), evalStateT)
 import Control.Monad.IO.Class (MonadIO)
-import Control.Applicative ((<$>))
-import Control.Monad (liftM)
+import Control.Applicative ((<$>), (<*>))
+import Control.Monad (liftM, forM, forM_, filterM, void)
 import qualified Data.ByteString.Lazy as B
 import qualified Data.ByteString.Lazy.Char8 as B8
 import Text.ParserCombinators.Parsec
@@ -77,20 +77,17 @@ main = do
                                                (DebugConfig [])
                           else putStrLn "Host and port arguments are required"
 
-data Bp = Bp String
-          deriving (Show, Eq)
-
 data DebugConfig = DebugConfig
-    { breakpoints :: [Bp] }
+    { breakpoints :: [Command] }
     
 type Debugger = StateT DebugConfig
 
-addBreakpoint :: MonadIO m => String -> Debugger m ()
-addBreakpoint s = do
+addBreakpoint :: Monad m => Command -> Debugger m ()
+addBreakpoint c = do
     dc <- get
-    put $ dc {breakpoints = Bp s : breakpoints dc}
+    put $ dc {breakpoints = c : breakpoints dc}
 
-listBreakpoints :: MonadIO m => Debugger m [Bp]
+listBreakpoints :: Monad m => Debugger m [Command]
 listBreakpoints = breakpoints `liftM` get
 
 initialSetup :: VirtualMachine (Debugger (InputT IO)) ()
@@ -106,12 +103,37 @@ eventLoop = do
         ClassPrepare -> do
             liftIO $ putStrLn "Received ClassPrepare request"
             liftIO $ putStrLn $ show $ referenceType event
+            setupBreakpoints $ referenceType event
             resume es
             eventLoop
         otherwise -> do
             liftIO $ putStrLn $ show event
             commandLoop
             eventLoop
+
+className :: Command -> String
+className (BreakpointLineCommand cn _) = cn
+className (BreakpointMethodCommand cn _) = cn
+
+setupBreakpoints :: ReferenceType -> VirtualMachine (Debugger (InputT IO)) ()
+setupBreakpoints refType = do
+    refName <- name refType
+    bpList <- filter ((refName ==) . className) <$> lift listBreakpoints
+    forM_ bpList (setupBreakpoint refType)
+
+setupBreakpoint :: ReferenceType -> Command -> VirtualMachine (Debugger (InputT IO)) ()
+setupBreakpoint refType (BreakpointLineCommand nm line) = do
+    lineLocations <- allLineLocations refType
+    let matchingLines = filter ((line ==) . lineNumber) lineLocations
+    if null matchingLines
+        then liftIO . putStrLn $ "there is no executable source code for line: " ++ show line
+        else void $ enable $ createBreakpointRequest (head matchingLines)
+setupBreakpoint refType (BreakpointMethodCommand nm method) = do
+    methods <- allMethods refType
+    matchingMethods <- filterM ((liftM (method ==)) . name) methods
+    if null matchingMethods
+        then liftIO . putStrLn $ "there is no method with name: " ++ method
+        else void $ enable =<< createBreakpointRequest <$> (location $ head matchingMethods)
 
 commandLoop :: MonadException m => VirtualMachine (Debugger (InputT m)) ()
 commandLoop = do
@@ -127,8 +149,18 @@ commandLoop = do
                     commandLoop
                 ContinueCommand ->
                     resumeVm
+                BreakpointLineCommand name line -> do
+                    lift . addBreakpoint $ BreakpointLineCommand name line
+                    commandLoop
+                BreakpointMethodCommand name method -> do
+                    lift . addBreakpoint $ BreakpointMethodCommand name method
+                    commandLoop
+                ListCommand -> do
+                    l <- lift listBreakpoints
+                    lift . lift . outputStrLn $ show l
+                    commandLoop
                 UnknownCommand error -> do
-                    lift . lift . outputStrLn $ "Error during parsing the command:"
+                    lift . lift . outputStrLn $ "Error during parsing the command: " ++ (show error)
                     commandLoop
 
 data Command = VersionCommand
@@ -136,6 +168,7 @@ data Command = VersionCommand
              | BreakpointLineCommand String Int -- class line
              | BreakpointMethodCommand String String -- class method
              | QuitCommand
+             | ListCommand
              | UnknownCommand ParseError
                deriving Show
 
@@ -146,7 +179,27 @@ parseCommand input = case parse commandParser "(unknown)" input of
 
 commandParser :: CharParser st Command
 commandParser =
-    parseVersion <|> parseContinue <|> parseQuit
+    parseVersion <|> parseContinue <|> parseQuit <|> parseBreakpoint <|> parseList
+
+parseList :: CharParser st Command
+parseList = do
+    string "list"
+    return ListCommand
+
+parseBreakpoint :: CharParser st Command
+parseBreakpoint = do
+    string "breakpoint"
+    char ' '
+    className <- many1 (noneOf " ")
+    char ' '
+    ((return . (BreakpointMethodCommand className) =<< parseMethod) <|>
+     (return . (BreakpointLineCommand className) =<< parseLineNum))
+
+parseMethod :: CharParser st String
+parseMethod = many1 (noneOf " 0123456789")
+
+parseLineNum :: CharParser st Int
+parseLineNum = read <$> many1 digit
 
 parseVersion :: CharParser st Command
 parseVersion = do
@@ -162,10 +215,3 @@ parseQuit :: CharParser st Command
 parseQuit = do
     string "quit"
     return QuitCommand
-
-{-
-processCommand v | take 4 v == "set " = lift $ addBreakpoint (drop 4 v)
-processCommand "list" = do
-    bps <- lift $ listBreakpoints
-    liftIO $ putStrLn $ show bps
-    -}
