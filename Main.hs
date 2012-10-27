@@ -4,7 +4,7 @@ import System.Console.GetOpt (getOpt, ArgOrder(..), OptDescr(..), ArgDescr(..))
 import System.Environment (getArgs)
 import Network
 import GHC.IO.Handle
-import Data.List (intercalate, find, isPrefixOf)
+import Data.List (intercalate, find, isPrefixOf, isSuffixOf, dropWhileEnd, dropWhile)
 import Data.Maybe (fromMaybe, fromJust)
 import GHC.Word (Word16, Word32, Word8)
 import Network.Socket.Internal (PortNumber(..))
@@ -17,6 +17,7 @@ import qualified Data.ByteString.Lazy as B
 import qualified Data.ByteString.Lazy.Char8 as B8
 import Text.ParserCombinators.Parsec
 import Text.ParserCombinators.Parsec.Char
+import Data.Char (isSpace)
 
 import Jdi
 
@@ -51,13 +52,30 @@ getPort opts = PortNumber $ fromIntegral $ ((read $ port $ fromMaybe (Port "2044
 getHost :: [Flag] -> String
 getHost opts = host $ fromMaybe (Host "localhost") (find isHost opts)
 
+data CommandElement m st = CommandName String (CharParser st String) (CompletionFunc m)
+                         | ClassName   String (CharParser st String) (CompletionFunc m)
+                         | MethodName  String
+                         | LineNum     Int
+
 cmdList = ["quit", "version", "breakpoint", "next", "continue", "print"]
+
+trim = dropWhileEnd isSpace . (dropWhile isSpace)
+
+buildCompletions = map (\name -> Completion name name True)
+
+listMethods className = []
 
 commandLineComplete :: MonadIO m => CompletionFunc m
 commandLineComplete (leftLine, _) = do
-    return ("", ncl)
+    if "breakpoint" `isPrefixOf` line
+        then do
+            let whiteSpaceTerminated = " " `isSuffixOf` line
+            let w = words line
+            case (length w, whiteSpaceTerminated) of
+                (2, True) -> return (leftLine, buildCompletions $ listMethods (w !! 1))
+        else return ("", ncl)
     where
-        ncl = map (\name -> Completion name name True) $ filter (line `isPrefixOf`) cmdList
+        ncl = buildCompletions $ filter (line `isPrefixOf`) cmdList
         line = reverse leftLine
 
 main :: IO ()
@@ -69,7 +87,7 @@ main = do
         else if Version `elem` opts
                  then putStrLn "1.0"
                  else if ((isPort `any` opts) && (isHost `any` opts))
-                          then  runInputT (Settings commandLineComplete Nothing True) $
+                          then runInputT (Settings commandLineComplete Nothing True) $
                                     evalStateT (runVirtualMachine
                                                     (getHost opts)
                                                     (getPort opts)
@@ -178,22 +196,29 @@ parseCommand input = case parse commandParser "(unknown)" input of
     Right command -> command
 
 commandParser :: CharParser st Command
-commandParser =
-    parseVersion <|> parseContinue <|> parseQuit <|> parseBreakpoint <|> parseList
+commandParser = parseVersion
+            <|> parseContinue
+            <|> parseQuit
+            <|> parseBreakpointCommand
+            <|> parseList
 
 parseList :: CharParser st Command
-parseList = do
-    string "list"
-    return ListCommand
+parseList = string "list" >> return ListCommand
 
-parseBreakpoint :: CharParser st Command
-parseBreakpoint = do
-    string "breakpoint"
+parseBreakpointCommand :: CharParser st Command
+parseBreakpointCommand = do
+    parseBreakpoint
     char ' '
-    className <- many1 (noneOf " ")
+    className <- parseClassName
     char ' '
     ((return . (BreakpointMethodCommand className) =<< parseMethod) <|>
      (return . (BreakpointLineCommand className) =<< parseLineNum))
+
+parseBreakpoint :: CharParser st String
+parseBreakpoint = string "breakpoint"
+
+parseClassName :: CharParser st String
+parseClassName = many1 (noneOf " ")
 
 parseMethod :: CharParser st String
 parseMethod = many1 (noneOf " 0123456789")
@@ -202,16 +227,10 @@ parseLineNum :: CharParser st Int
 parseLineNum = read <$> many1 digit
 
 parseVersion :: CharParser st Command
-parseVersion = do
-    string "version"
-    return VersionCommand
+parseVersion = string "version" >> return VersionCommand
 
 parseContinue :: CharParser st Command
-parseContinue = do
-    string "continue"
-    return ContinueCommand
+parseContinue = string "continue" >> return ContinueCommand
 
 parseQuit :: CharParser st Command
-parseQuit = do
-    string "quit"
-    return QuitCommand
+parseQuit = string "quit" >> return QuitCommand
