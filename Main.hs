@@ -18,12 +18,14 @@ import qualified Data.ByteString.Lazy.Char8 as B8
 import Text.ParserCombinators.Parsec
 import Text.ParserCombinators.Parsec.Char
 import Data.Char (isSpace)
+import qualified JarFind as JF
 
 import Jdi
 
 data Flag = Version
           | Port { port :: String }
           | Host { host :: String }
+          | ClassPath { path :: String }
             deriving (Show, Eq)
 
 options :: [OptDescr Flag]
@@ -31,6 +33,7 @@ options =
     [ Option ['v'] ["version"] (NoArg Version) "show version number"
     , Option ['p'] ["port"]    (ReqArg Port "PORT") "port number"
     , Option ['h'] ["host"]    (ReqArg Host "HOST") "host number"
+    , Option ['c'] ["class-path"]    (ReqArg ClassPath "CLASS-PATH") "class-path path"
     ]
 
 cmdArgsErrMsg :: [String] -> String
@@ -46,11 +49,24 @@ isHost :: Flag -> Bool
 isHost (Host _) = True
 isHost _ = False
 
+isClassPath :: Flag -> Bool
+isClassPath (ClassPath _) = True
+isClassPath _ = False
+
 getPort :: [Flag] -> PortID
 getPort opts = PortNumber $ fromIntegral $ ((read $ port $ fromMaybe (Port "2044") (find isPort opts)) :: Int)
 
 getHost :: [Flag] -> String
 getHost opts = host $ fromMaybe (Host "localhost") (find isHost opts)
+
+extractClassFileSource :: [Flag] -> JF.ClassFileSource
+extractClassFileSource fs = JF.ClassPath $ map spToCfp $ filter isClassPath fs
+    where spToCfp (ClassPath path) =
+            if ".jar" `isSuffixOf` path
+                then JF.JarFile path
+                else if ".class" `isSuffixOf` path
+                     then JF.ClassFile path
+                     else error $ "unknown extension of the file: " ++ path
 
 data CommandElement m st = CommandName String (CharParser st String) (CompletionFunc m)
                          | ClassName   String (CharParser st String) (CompletionFunc m)
@@ -78,10 +94,13 @@ commandLineComplete (leftLine, _) = do
         ncl = buildCompletions $ filter (line `isPrefixOf`) cmdList
         line = reverse leftLine
 
+deriving instance Show JF.ClassFileSource
+
 main :: IO ()
 main = do
     args <- getArgs
     let (opts, unparsed, errors) = getOpt Permute options args
+    putStrLn $ show $ extractClassFileSource opts
     if not $ null errors
         then putStr $ cmdArgsErrMsg errors
         else if Version `elem` opts
