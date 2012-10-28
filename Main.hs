@@ -20,7 +20,7 @@ import Text.ParserCombinators.Parsec.Char
 import Data.Char (isSpace)
 import qualified JarFind as JF
 
-import Jdi
+import Language.Java.Jdi
 
 data Flag = Version
           | Port { port :: String }
@@ -127,11 +127,12 @@ main = do
                                                     (getHost opts)
                                                     (getPort opts)
                                                     (initialSetup >> eventLoop))
-                                               (DebugConfig [])
+                                               (DebugConfig [] Nothing)
                           else putStrLn "Host and port arguments are required"
 
 data DebugConfig = DebugConfig
-    { breakpoints :: [Command] }
+    { breakpoints :: [Command]
+    , currentThread :: Maybe ThreadReference }
     
 type Debugger = StateT DebugConfig
 
@@ -142,6 +143,14 @@ addBreakpoint c = do
 
 listBreakpoints :: Monad m => Debugger m [Command]
 listBreakpoints = breakpoints `liftM` get
+
+setCurrentThread :: Monad m => ThreadReference -> Debugger m ()
+setCurrentThread tr = do
+    dc <- get
+    put $ dc {currentThread = Just tr}
+
+getCurrentThread :: Monad m => Debugger m (Maybe ThreadReference)
+getCurrentThread = currentThread `liftM` get
 
 initialSetup :: VirtualMachine (Debugger (InputT IO)) ()
 initialSetup = do
@@ -158,6 +167,11 @@ eventLoop = do
             liftIO $ putStrLn $ show $ referenceType event
             setupBreakpoints $ referenceType event
             resume es
+            eventLoop
+        Breakpoint -> do
+            lift . setCurrentThread $ thread event
+            liftIO $ putStrLn $ show event
+            commandLoop
             eventLoop
         otherwise -> do
             liftIO $ putStrLn $ show event
@@ -212,6 +226,15 @@ commandLoop = do
                     l <- lift listBreakpoints
                     lift . lift . outputStrLn $ show l
                     commandLoop
+                NextCommand -> do
+                    ct <- lift $ getCurrentThread
+                    case ct of
+                        Just curThread -> do
+                            enable $ createStepRequest curThread StepLine StepOver
+                            resumeVm
+                        Nothing -> do
+                            lift . lift . outputStrLn $ "no previous breakpoint available"
+                            commandLoop
                 UnknownCommand error -> do
                     lift . lift . outputStrLn $ "Error during parsing the command: " ++ (show error)
                     commandLoop
@@ -222,6 +245,7 @@ data Command = VersionCommand
              | BreakpointMethodCommand String String -- class method
              | QuitCommand
              | ListCommand
+             | NextCommand
              | UnknownCommand ParseError
                deriving Show
 
@@ -236,6 +260,10 @@ commandParser = parseVersion
             <|> parseQuit
             <|> parseBreakpointCommand
             <|> parseList
+            <|> parseNext
+
+parseNext :: CharParser st Command
+parseNext = string "next" >> return NextCommand
 
 parseList :: CharParser st Command
 parseList = string "list" >> return ListCommand
