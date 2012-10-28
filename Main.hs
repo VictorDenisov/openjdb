@@ -79,34 +79,50 @@ trim = dropWhileEnd isSpace . (dropWhile isSpace)
 
 buildCompletions = map (\name -> Completion name name True)
 
-listMethods className = []
+isMethod :: JF.Member -> Bool
+isMethod (JF.Method {}) = True
+isMethod _ = False
 
-commandLineComplete :: MonadIO m => CompletionFunc m
-commandLineComplete (leftLine, _) = do
-    if "breakpoint" `isPrefixOf` line
+commandLineComplete :: MonadIO m => [JF.Class] -> CompletionFunc m
+commandLineComplete classes (leftLine, _) = do
+    if "breakpoint " `isPrefixOf` line
         then do
             let whiteSpaceTerminated = " " `isSuffixOf` line
             let w = words line
             case (length w, whiteSpaceTerminated) of
-                (2, True) -> return (leftLine, buildCompletions $ listMethods (w !! 1))
+                (1, True) -> return (leftLine,
+                                buildCompletions $ allClassesNames)
+                (2, False) -> return (drop (length $ w !! 1) leftLine,
+                                buildCompletions
+                                    $ filter ((w !! 1) `isPrefixOf`)
+                                                            allClassesNames)
+                (2, True) -> return (leftLine,
+                                buildCompletions $ listMethodsNames (w !! 1))
+                (3, False) -> return (drop (length $ w !! 2) leftLine,
+                                buildCompletions
+                                    $ filter ((w !! 2) `isPrefixOf`)
+                                                $ listMethodsNames (w !! 1))
         else return ("", ncl)
     where
         ncl = buildCompletions $ filter (line `isPrefixOf`) cmdList
         line = reverse leftLine
-
-deriving instance Show JF.ClassFileSource
+        listMethodsNames = map JF.mName . methodsOfClass
+        myClasses className = filter ((className ==) . JF.clsName) classes
+        allMembersOfClass = concat . map JF.clsMembers . myClasses
+        allClassesNames = map JF.clsName classes
+        methodsOfClass = filter isMethod . allMembersOfClass
 
 main :: IO ()
 main = do
     args <- getArgs
     let (opts, unparsed, errors) = getOpt Permute options args
-    putStrLn $ show $ extractClassFileSource opts
+    cpClasses <- map snd <$> (JF.parseFileSource $ extractClassFileSource opts)
     if not $ null errors
         then putStr $ cmdArgsErrMsg errors
         else if Version `elem` opts
                  then putStrLn "1.0"
                  else if ((isPort `any` opts) && (isHost `any` opts))
-                          then runInputT (Settings commandLineComplete Nothing True) $
+                          then runInputT (Settings (commandLineComplete cpClasses) Nothing True) $
                                     evalStateT (runVirtualMachine
                                                     (getHost opts)
                                                     (getPort opts)
