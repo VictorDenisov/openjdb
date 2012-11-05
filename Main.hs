@@ -26,6 +26,7 @@ data Flag = Version
           | Port { port :: String }
           | Host { host :: String }
           | ClassPath { path :: String }
+          | SourcePath { path :: String }
             deriving (Show, Eq)
 
 options :: [OptDescr Flag]
@@ -34,6 +35,7 @@ options =
     , Option ['p'] ["port"]    (ReqArg Port "PORT") "port number"
     , Option ['h'] ["host"]    (ReqArg Host "HOST") "host number"
     , Option ['c'] ["class-path"]    (ReqArg ClassPath "CLASS-PATH") "class-path path"
+    , Option ['s'] ["source-path"]   (ReqArg SourcePath "SOURCE-PATH") "source-path path"
     ]
 
 cmdArgsErrMsg :: [String] -> String
@@ -171,8 +173,19 @@ eventLoop = do
         Breakpoint -> do
             lift . setCurrentThread $ thread event
             liftIO $ putStrLn $ show event
+            l <- location event
+            liftIO $ putStrLn $ show l
             commandLoop
             eventLoop
+        SingleStep -> do
+            liftIO $ putStrLn $ show event
+            l <- location event
+            liftIO $ putStrLn $ show l
+            commandLoop
+            eventLoop
+        VmDeath -> do
+            liftIO $ putStrLn $ show event
+            return ()
         otherwise -> do
             liftIO $ putStrLn $ show event
             commandLoop
