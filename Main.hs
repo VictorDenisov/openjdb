@@ -20,7 +20,7 @@ import Text.ParserCombinators.Parsec.Char
 import Data.Char (isSpace)
 import qualified JarFind as JF
 
-import Language.Java.Jdi
+import qualified Language.Java.Jdi as J
 
 data Flag = Version
           | Port { port :: String }
@@ -125,7 +125,7 @@ main = do
                  then putStrLn "1.0"
                  else if ((isPort `any` opts) && (isHost `any` opts))
                           then runInputT (Settings (commandLineComplete cpClasses) Nothing True) $
-                                    evalStateT (runVirtualMachine
+                                    evalStateT (J.runVirtualMachine
                                                     (getHost opts)
                                                     (getPort opts)
                                                     (initialSetup >> eventLoop))
@@ -134,7 +134,7 @@ main = do
 
 data DebugConfig = DebugConfig
     { breakpoints :: [Command]
-    , currentThread :: Maybe ThreadReference }
+    , currentThread :: Maybe J.ThreadReference }
     
 type Debugger = StateT DebugConfig
 
@@ -146,44 +146,48 @@ addBreakpoint c = do
 listBreakpoints :: Monad m => Debugger m [Command]
 listBreakpoints = breakpoints `liftM` get
 
-setCurrentThread :: Monad m => ThreadReference -> Debugger m ()
+setCurrentThread :: Monad m => J.ThreadReference -> Debugger m ()
 setCurrentThread tr = do
     dc <- get
     put $ dc {currentThread = Just tr}
 
-getCurrentThread :: Monad m => Debugger m (Maybe ThreadReference)
+getCurrentThread :: Monad m => Debugger m (Maybe J.ThreadReference)
 getCurrentThread = currentThread `liftM` get
 
-initialSetup :: VirtualMachine (Debugger (InputT IO)) ()
+initialSetup :: J.VirtualMachine (Debugger (InputT IO)) ()
 initialSetup = do
-    enable createClassPrepareRequest
+    J.enable J.createClassPrepareRequest
     return ()
 
-eventLoop :: VirtualMachine (Debugger (InputT IO)) ()
+eventLoop :: J.VirtualMachine (Debugger (InputT IO)) ()
 eventLoop = do
-    es <- removeEvent
-    let event = head $ events es
-    case eventKind event of
-        ClassPrepare -> do
+    es <- J.removeEvent
+    let event = head $ J.events es
+    case J.eventKind event of
+        J.ClassPrepare -> do
             liftIO $ putStrLn "Received ClassPrepare request"
-            liftIO $ putStrLn $ show $ referenceType event
-            setupBreakpoints $ referenceType event
-            resume es
+            liftIO $ putStrLn $ show $ J.referenceType event
+            setupBreakpoints $ J.referenceType event
+            J.resume es
             eventLoop
-        Breakpoint -> do
-            lift . setCurrentThread $ thread event
+        J.Breakpoint -> do
+            lift . setCurrentThread $ J.thread event
             liftIO $ putStrLn $ show event
-            l <- location event
+            l <- J.location event
             liftIO $ putStrLn $ show l
+            sn <- J.sourceName l
+            liftIO $ putStrLn sn
             commandLoop
             eventLoop
-        SingleStep -> do
+        J.SingleStep -> do
             liftIO $ putStrLn $ show event
-            l <- location event
+            l <- J.location event
             liftIO $ putStrLn $ show l
+            sn <- J.sourceName l
+            liftIO $ putStrLn sn
             commandLoop
             eventLoop
-        VmDeath -> do
+        J.VmDeath -> do
             liftIO $ putStrLn $ show event
             return ()
         otherwise -> do
@@ -195,27 +199,27 @@ className :: Command -> String
 className (BreakpointLineCommand cn _) = cn
 className (BreakpointMethodCommand cn _) = cn
 
-setupBreakpoints :: ReferenceType -> VirtualMachine (Debugger (InputT IO)) ()
+setupBreakpoints :: J.ReferenceType -> J.VirtualMachine (Debugger (InputT IO)) ()
 setupBreakpoints refType = do
-    refName <- name refType
+    refName <- J.name refType
     bpList <- filter ((refName ==) . className) <$> lift listBreakpoints
     forM_ bpList (setupBreakpoint refType)
 
-setupBreakpoint :: ReferenceType -> Command -> VirtualMachine (Debugger (InputT IO)) ()
+setupBreakpoint :: J.ReferenceType -> Command -> J.VirtualMachine (Debugger (InputT IO)) ()
 setupBreakpoint refType (BreakpointLineCommand nm line) = do
-    lineLocations <- allLineLocations refType
-    let matchingLines = filter ((line ==) . lineNumber) lineLocations
+    lineLocations <- J.allLineLocations refType
+    let matchingLines = filter ((line ==) . J.lineNumber) lineLocations
     if null matchingLines
         then liftIO . putStrLn $ "there is no executable source code for line: " ++ show line
-        else void $ enable $ createBreakpointRequest (head matchingLines)
+        else void $ J.enable $ J.createBreakpointRequest (head matchingLines)
 setupBreakpoint refType (BreakpointMethodCommand nm method) = do
-    methods <- allMethods refType
-    matchingMethods <- filterM ((liftM (method ==)) . name) methods
+    methods <- J.allMethods refType
+    matchingMethods <- filterM ((liftM (method ==)) . J.name) methods
     if null matchingMethods
         then liftIO . putStrLn $ "there is no method with name: " ++ method
-        else void $ enable =<< createBreakpointRequest <$> (location $ head matchingMethods)
+        else void $ J.enable =<< J.createBreakpointRequest <$> (J.location $ head matchingMethods)
 
-commandLoop :: MonadException m => VirtualMachine (Debugger (InputT m)) ()
+commandLoop :: MonadException m => J.VirtualMachine (Debugger (InputT m)) ()
 commandLoop = do
     minput <- (lift . lift) $ getInputLine "(jdb) "
     case minput of
@@ -224,11 +228,11 @@ commandLoop = do
             case parseCommand (fromJust minput) of
                 QuitCommand -> return ()
                 VersionCommand -> do
-                    p <- version
+                    p <- J.version
                     lift . lift . outputStrLn $ show p
                     commandLoop
                 ContinueCommand ->
-                    resumeVm
+                    J.resumeVm
                 BreakpointLineCommand name line -> do
                     lift . addBreakpoint $ BreakpointLineCommand name line
                     commandLoop
@@ -243,8 +247,8 @@ commandLoop = do
                     ct <- lift $ getCurrentThread
                     case ct of
                         Just curThread -> do
-                            enable $ createStepRequest curThread StepLine StepOver
-                            resumeVm
+                            J.enable $ J.createStepRequest curThread J.StepLine J.StepOver
+                            J.resumeVm
                         Nothing -> do
                             lift . lift . outputStrLn $ "no previous breakpoint available"
                             commandLoop
