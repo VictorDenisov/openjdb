@@ -104,6 +104,7 @@ commandLineComplete classes (leftLine, _) = do
                                 buildCompletions
                                     $ filter ((w !! 2) `isPrefixOf`)
                                                 $ listMethodsNames (w !! 1))
+                (3, True) -> return (leftLine, [])
         else return ("", ncl)
     where
         ncl = buildCompletions $ filter (line `isPrefixOf`) cmdList
