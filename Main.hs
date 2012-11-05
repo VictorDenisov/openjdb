@@ -247,7 +247,12 @@ commandLoop = do
                     ct <- lift $ getCurrentThread
                     case ct of
                         Just curThread -> do
-                            J.enable $ J.createStepRequest curThread J.StepLine J.StepOver
+                            J.enable $ J.addCountFilter
+                                            1
+                                            (J.createStepRequest
+                                                curThread
+                                                J.StepLine
+                                                J.StepOver)
                             J.resumeVm
                         Nothing -> do
                             lift . lift . outputStrLn $ "no previous breakpoint available"
