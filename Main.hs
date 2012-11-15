@@ -248,11 +248,8 @@ commandLoop = do
                 PrintCommand arg -> do
                     (Just ct) <- lift $ getCurrentThread
                     fr <- head <$> J.frames ct 0 0
-                    liftIO $ putStrLn $ show fr
                     loc <- J.location fr
-                    liftIO $ putStrLn $ show loc
                     var <- head <$> J.variablesByName (J.method loc) arg
-                    liftIO $ putStrLn $ show loc
                     v <- J.getValue fr var
                     liftIO $ putStrLn $ show v
                     commandLoop
