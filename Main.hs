@@ -1,4 +1,5 @@
 import System.Console.Haskeline
+import System.IO (readFile)
 import System.Console.Haskeline.Completion(CompletionFunc)
 import System.Console.GetOpt (getOpt, ArgOrder(..), OptDescr(..), ArgDescr(..))
 import System.Environment (getArgs)
@@ -54,6 +55,10 @@ isHost _ = False
 isClassPath :: Flag -> Bool
 isClassPath (ClassPath _) = True
 isClassPath _ = False
+
+isSourcePath :: Flag -> Bool
+isSourcePath (SourcePath _) = True
+isSourcePath _ = False
 
 getPort :: [Flag] -> PortID
 getPort opts = PortNumber $ fromIntegral $ ((read $ port $ fromMaybe (Port "2044") (find isPort opts)) :: Int)
@@ -121,6 +126,7 @@ main = do
     args <- getArgs
     let (opts, unparsed, errors) = getOpt Permute options args
     cpClasses <- map snd <$> (JF.parseFileSource $ extractClassFileSource opts)
+    let sourceFiles = map path $ filter isSourcePath opts
     if not $ null errors
         then putStr $ cmdArgsErrMsg errors
         else if Version `elem` opts
@@ -131,13 +137,15 @@ main = do
                                                     (getHost opts)
                                                     (getPort opts)
                                                     (initialSetup >> eventLoop))
-                                               (DebugConfig [] Nothing)
+                                               (DebugConfig [] Nothing sourceFiles)
                           else putStrLn "Host and port arguments are required"
 
 data DebugConfig = DebugConfig
     { breakpoints :: [Command]
-    , currentThread :: Maybe J.ThreadReference }
-    
+    , currentThread :: Maybe J.ThreadReference
+    , sourceFiles :: [String]
+    }
+
 type Debugger = StateT DebugConfig
 
 addBreakpoint :: Monad m => Command -> Debugger m ()
@@ -153,13 +161,12 @@ setCurrentThread tr = do
     dc <- get
     put $ dc {currentThread = Just tr}
 
-getCurrentThread :: Monad m => Debugger m (Maybe J.ThreadReference)
-getCurrentThread = currentThread `liftM` get
-
 initialSetup :: J.VirtualMachine (Debugger (InputT IO)) ()
 initialSetup = do
     J.enable J.createClassPrepareRequest
     return ()
+
+getSourceFiles = lift $ sourceFiles <$> get
 
 eventLoop :: J.VirtualMachine (Debugger (InputT IO)) ()
 eventLoop = do
@@ -176,17 +183,19 @@ eventLoop = do
             lift . setCurrentThread $ J.thread event
             liftIO $ putStrLn $ show event
             l <- J.location event
-            liftIO $ putStrLn $ show l
             sn <- J.sourceName l
-            liftIO $ putStrLn sn
+            source <- head . filter (sn `isSuffixOf`) <$> getSourceFiles
+            dat <- lines <$> (liftIO . readFile) source
+            liftIO $ putStrLn $ dat !! (J.lineNumber l - 1)
             commandLoop
             eventLoop
         J.SingleStep -> do
             liftIO $ putStrLn $ show event
             l <- J.location event
-            liftIO $ putStrLn $ show l
             sn <- J.sourceName l
-            liftIO $ putStrLn sn
+            source <- head . filter (sn `isSuffixOf`) <$> getSourceFiles
+            dat <- lines <$> (liftIO . readFile) source
+            liftIO $ putStrLn $ dat !! (J.lineNumber l - 1)
             commandLoop
             eventLoop
         J.VmDeath -> do
@@ -246,7 +255,7 @@ commandLoop = do
                     lift . lift . outputStrLn $ show l
                     commandLoop
                 PrintCommand arg -> do
-                    (Just ct) <- lift $ getCurrentThread
+                    (Just ct) <- lift $ currentThread <$> get
                     fr <- head <$> J.frames ct 0 0
                     loc <- J.location fr
                     var <- head <$> J.variablesByName (J.method loc) arg
@@ -254,7 +263,7 @@ commandLoop = do
                     liftIO $ putStrLn $ show v
                     commandLoop
                 NextCommand -> do
-                    ct <- lift $ getCurrentThread
+                    ct <- lift $ currentThread <$> get
                     case ct of
                         Just curThread -> do
                             J.enable $ J.addCountFilter
