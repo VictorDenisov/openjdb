@@ -85,12 +85,10 @@ isMethod :: JF.Member -> Bool
 isMethod (JF.Method {}) = True
 isMethod _ = False
 
-commandLineComplete :: MonadIO m => [JF.Class] -> CompletionFunc m
+commandLineComplete :: Monad m => [JF.Class] -> CompletionFunc m
 commandLineComplete classes (leftLine, _) = do
     if "breakpoint " `isPrefixOf` line
         then do
-            let whiteSpaceTerminated = " " `isSuffixOf` line
-            let w = words line
             case (length w, whiteSpaceTerminated) of
                 (1, True) -> return (leftLine,
                                 buildCompletions $ allClassesNames)
@@ -107,6 +105,8 @@ commandLineComplete classes (leftLine, _) = do
                 (3, True) -> return (leftLine, [])
         else return ("", ncl)
     where
+        w = words line
+        whiteSpaceTerminated = " " `isSuffixOf` line
         ncl = buildCompletions $ filter (line `isPrefixOf`) cmdList
         line = reverse leftLine
         listMethodsNames = map JF.mName . methodsOfClass
@@ -114,6 +114,7 @@ commandLineComplete classes (leftLine, _) = do
         allMembersOfClass = concat . map JF.clsMembers . myClasses
         allClassesNames = map JF.clsName classes
         methodsOfClass = filter isMethod . allMembersOfClass
+        allAvailablePrintables = []
 
 main :: IO ()
 main = do
@@ -244,6 +245,17 @@ commandLoop = do
                     l <- lift listBreakpoints
                     lift . lift . outputStrLn $ show l
                     commandLoop
+                PrintCommand arg -> do
+                    (Just ct) <- lift $ getCurrentThread
+                    fr <- head <$> J.frames ct 0 0
+                    liftIO $ putStrLn $ show fr
+                    loc <- J.location fr
+                    liftIO $ putStrLn $ show loc
+                    var <- head <$> J.variablesByName (J.method loc) arg
+                    liftIO $ putStrLn $ show loc
+                    v <- J.getValue fr var
+                    liftIO $ putStrLn $ show v
+                    commandLoop
                 NextCommand -> do
                     ct <- lift $ getCurrentThread
                     case ct of
@@ -269,6 +281,7 @@ data Command = VersionCommand
              | QuitCommand
              | ListCommand
              | NextCommand
+             | PrintCommand String
              | UnknownCommand ParseError
                deriving Show
 
@@ -284,6 +297,7 @@ commandParser = parseVersion
             <|> parseBreakpointCommand
             <|> parseList
             <|> parseNext
+            <|> parsePrint
 
 parseNext :: CharParser st Command
 parseNext = string "next" >> return NextCommand
@@ -320,3 +334,9 @@ parseContinue = string "continue" >> return ContinueCommand
 
 parseQuit :: CharParser st Command
 parseQuit = string "quit" >> return QuitCommand
+
+parsePrint :: CharParser st Command
+parsePrint = do
+    string "print "
+    s <- many1 (noneOf " ")
+    return $ PrintCommand s
