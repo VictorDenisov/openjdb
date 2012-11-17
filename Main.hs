@@ -10,6 +10,7 @@ import Data.Maybe (fromMaybe, fromJust)
 import GHC.Word (Word16, Word32, Word8)
 import Network.Socket.Internal (PortNumber(..))
 import Control.Monad.Trans (liftIO, lift)
+import Control.Monad.Error (runErrorT, ErrorT)
 import Control.Monad.State (StateT(..), MonadState(..), evalStateT)
 import Control.Monad.IO.Class (MonadIO)
 import Control.Applicative ((<$>), (<*>))
@@ -132,12 +133,19 @@ main = do
         else if Version `elem` opts
                  then putStrLn "1.0"
                  else if ((isPort `any` opts) && (isHost `any` opts))
-                          then runInputT (Settings (commandLineComplete cpClasses) Nothing True) $
-                                    evalStateT (J.runVirtualMachine
-                                                    (getHost opts)
-                                                    (getPort opts)
-                                                    (initialSetup >> eventLoop))
-                                               (DebugConfig [] Nothing sourceFiles)
+                          then do res <- runInputT
+                                                (Settings
+                                                    (commandLineComplete cpClasses)
+                                                    Nothing
+                                                    True)
+                                             $ runErrorT $ evalStateT (J.runVirtualMachine
+                                                             (getHost opts)
+                                                             (getPort opts)
+                                                             (initialSetup >> eventLoop))
+                                                             (DebugConfig [] Nothing sourceFiles)
+                                  case res of
+                                        Left e -> putStrLn $ "Error during execution: " ++ e
+                                        Right v -> putStrLn $ "Success"
                           else putStrLn "Host and port arguments are required"
 
 data DebugConfig = DebugConfig
@@ -161,14 +169,14 @@ setCurrentThread tr = do
     dc <- get
     put $ dc {currentThread = Just tr}
 
-initialSetup :: J.VirtualMachine (Debugger (InputT IO)) ()
+initialSetup :: J.VirtualMachine (Debugger (ErrorT String (InputT IO))) ()
 initialSetup = do
     J.enable J.createClassPrepareRequest
     return ()
 
 getSourceFiles = lift $ sourceFiles <$> get
 
-eventLoop :: J.VirtualMachine (Debugger (InputT IO)) ()
+eventLoop :: J.VirtualMachine (Debugger (ErrorT String (InputT IO))) ()
 eventLoop = do
     es <- J.removeEvent
     let event = head $ J.events es
@@ -210,13 +218,13 @@ className :: Command -> String
 className (BreakpointLineCommand cn _) = cn
 className (BreakpointMethodCommand cn _) = cn
 
-setupBreakpoints :: J.ReferenceType -> J.VirtualMachine (Debugger (InputT IO)) ()
+setupBreakpoints :: J.ReferenceType -> J.VirtualMachine (Debugger (ErrorT String (InputT IO))) ()
 setupBreakpoints refType = do
     refName <- J.name refType
     bpList <- filter ((refName ==) . className) <$> lift listBreakpoints
     forM_ bpList (setupBreakpoint refType)
 
-setupBreakpoint :: J.ReferenceType -> Command -> J.VirtualMachine (Debugger (InputT IO)) ()
+setupBreakpoint :: J.ReferenceType -> Command -> J.VirtualMachine (Debugger (ErrorT String (InputT IO))) ()
 setupBreakpoint refType (BreakpointLineCommand nm line) = do
     lineLocations <- J.allLineLocations refType
     let matchingLines = filter ((line ==) . J.lineNumber) lineLocations
@@ -230,9 +238,9 @@ setupBreakpoint refType (BreakpointMethodCommand nm method) = do
         then liftIO . putStrLn $ "there is no method with name: " ++ method
         else void $ J.enable =<< J.createBreakpointRequest <$> (J.location $ head matchingMethods)
 
-commandLoop :: MonadException m => J.VirtualMachine (Debugger (InputT m)) ()
+commandLoop :: MonadException m => J.VirtualMachine (Debugger (ErrorT String (InputT m))) ()
 commandLoop = do
-    minput <- (lift . lift) $ getInputLine "(jdb) "
+    minput <- (lift . lift . lift) $ getInputLine "(jdb) "
     case minput of
         Nothing -> return ()
         Just input -> 
@@ -240,7 +248,7 @@ commandLoop = do
                 QuitCommand -> return ()
                 VersionCommand -> do
                     p <- J.version
-                    lift . lift . outputStrLn $ show p
+                    lift . lift . lift . outputStrLn $ show p
                     commandLoop
                 ContinueCommand ->
                     J.resumeVm
@@ -252,7 +260,7 @@ commandLoop = do
                     commandLoop
                 ListCommand -> do
                     l <- lift listBreakpoints
-                    lift . lift . outputStrLn $ show l
+                    lift . lift . lift . outputStrLn $ show l
                     commandLoop
                 PrintCommand arg -> do
                     (Just ct) <- lift $ currentThread <$> get
@@ -274,10 +282,10 @@ commandLoop = do
                                                 J.StepOver)
                             J.resumeVm
                         Nothing -> do
-                            lift . lift . outputStrLn $ "no previous breakpoint available"
+                            lift . lift . lift . outputStrLn $ "no previous breakpoint available"
                             commandLoop
                 UnknownCommand error -> do
-                    lift . lift . outputStrLn $ "Error during parsing the command: " ++ (show error)
+                    lift . lift . lift . outputStrLn $ "Error during parsing the command: " ++ (show error)
                     commandLoop
 
 data Command = VersionCommand
