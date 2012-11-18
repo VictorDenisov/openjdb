@@ -269,14 +269,15 @@ commandLoop = do
                     l <- lift listBreakpoints
                     lift . lift . lift . outputStrLn $ show l
                     commandLoop
-                PrintCommand arg -> (do
+                PrintCommand arg -> do
                     ct <- lift getCurrentThread
-                    fr <- head <$> J.frames ct 0 0
+                    fr <- head <$> J.allFrames ct
                     loc <- J.location fr
                     var <- head <$> J.variablesByName (J.method loc) arg
                     v <- J.getValue fr var
                     liftIO $ putStrLn $ show v
-                    `catchError` (\e -> lift . lift . lift . outputStrLn $ show e)) >> commandLoop
+                    `catchError` (\e -> liftIO . putStrLn $ show e) >>
+                    commandLoop
                 NextCommand -> do
                     ct <- lift $ currentThread <$> get
                     case ct of
