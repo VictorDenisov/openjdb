@@ -10,7 +10,7 @@ import Data.Maybe (fromMaybe, fromJust)
 import GHC.Word (Word16, Word32, Word8)
 import Network.Socket.Internal (PortNumber(..))
 import Control.Monad.Trans (liftIO, lift)
-import Control.Monad.Error (runErrorT, ErrorT)
+import Control.Monad.Error (runErrorT, ErrorT, MonadError(..), Error(..))
 import Control.Monad.State (StateT(..), MonadState(..), evalStateT)
 import Control.Monad.IO.Class (MonadIO)
 import Control.Applicative ((<$>), (<*>))
@@ -238,6 +238,13 @@ setupBreakpoint refType (BreakpointMethodCommand nm method) = do
         then liftIO . putStrLn $ "there is no method with name: " ++ method
         else void $ J.enable =<< J.createBreakpointRequest <$> (J.location $ head matchingMethods)
 
+getCurrentThread :: (Error e, MonadError e m) => Debugger m J.ThreadReference
+getCurrentThread = do
+    value <- currentThread `liftM` get
+    case value of
+        Just v -> return v
+        Nothing -> throwError (strMsg "No current thread is available")
+
 commandLoop :: MonadException m => J.VirtualMachine (Debugger (ErrorT String (InputT m))) ()
 commandLoop = do
     minput <- (lift . lift . lift) $ getInputLine "(jdb) "
@@ -262,14 +269,14 @@ commandLoop = do
                     l <- lift listBreakpoints
                     lift . lift . lift . outputStrLn $ show l
                     commandLoop
-                PrintCommand arg -> do
-                    (Just ct) <- lift $ currentThread <$> get
+                PrintCommand arg -> (do
+                    ct <- lift getCurrentThread
                     fr <- head <$> J.frames ct 0 0
                     loc <- J.location fr
                     var <- head <$> J.variablesByName (J.method loc) arg
                     v <- J.getValue fr var
                     liftIO $ putStrLn $ show v
-                    commandLoop
+                    `catchError` (\e -> lift . lift . lift . outputStrLn $ show e)) >> commandLoop
                 NextCommand -> do
                     ct <- lift $ currentThread <$> get
                     case ct of
