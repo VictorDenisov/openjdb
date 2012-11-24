@@ -180,8 +180,10 @@ printSourceLine :: J.Location -> J.VirtualMachine (Debugger (ErrorT String (Inpu
 printSourceLine l = do
     sn <- J.sourceName l
     sourceList <- filter (sn `isSuffixOf`) <$> getSourceFiles
-    when (length sourceList > 1) $ throwError "there are more than one source file"
-    when (length sourceList == 0) $ throwError $ sn ++ ":" ++ show (J.lineNumber l) ++ " - source unavailable"
+    when (length sourceList > 1) $
+        throwError "there are more than one source file"
+    when (length sourceList == 0) $
+        throwError $ sn ++ ":" ++ show (J.lineNumber l) ++ " - source unavailable"
     dat <- lines <$> (liftIO . readFile) (head sourceList)
     liftIO $ putStrLn $ dat !! (J.lineNumber l - 1)
     `catchError` (\e -> liftIO . putStrLn $ show e)
