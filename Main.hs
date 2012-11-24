@@ -14,7 +14,7 @@ import Control.Monad.Error (runErrorT, ErrorT, MonadError(..), Error(..))
 import Control.Monad.State (StateT(..), MonadState(..), evalStateT)
 import Control.Monad.IO.Class (MonadIO)
 import Control.Applicative ((<$>), (<*>))
-import Control.Monad (liftM, forM, forM_, filterM, void)
+import Control.Monad (liftM, forM, forM_, filterM, void, when)
 import qualified Data.ByteString.Lazy as B
 import qualified Data.ByteString.Lazy.Char8 as B8
 import Text.ParserCombinators.Parsec
@@ -176,6 +176,16 @@ initialSetup = do
 
 getSourceFiles = lift $ sourceFiles <$> get
 
+printSourceLine :: J.Location -> J.VirtualMachine (Debugger (ErrorT String (InputT IO))) ()
+printSourceLine l = do
+    sn <- J.sourceName l
+    sourceList <- filter (sn `isSuffixOf`) <$> getSourceFiles
+    when (length sourceList > 1) $ throwError "there are more than one source file"
+    when (length sourceList == 0) $ throwError $ sn ++ ":" ++ show (J.lineNumber l) ++ " - source unavailable"
+    dat <- lines <$> (liftIO . readFile) (head sourceList)
+    liftIO $ putStrLn $ dat !! (J.lineNumber l - 1)
+    `catchError` (\e -> liftIO . putStrLn $ show e)
+
 eventLoop :: J.VirtualMachine (Debugger (ErrorT String (InputT IO))) ()
 eventLoop = do
     es <- J.removeEvent
@@ -191,19 +201,13 @@ eventLoop = do
             lift . setCurrentThread $ J.thread event
             liftIO $ putStrLn $ show event
             l <- J.location event
-            sn <- J.sourceName l
-            source <- head . filter (sn `isSuffixOf`) <$> getSourceFiles
-            dat <- lines <$> (liftIO . readFile) source
-            liftIO $ putStrLn $ dat !! (J.lineNumber l - 1)
+            printSourceLine l
             commandLoop
             eventLoop
         J.SingleStep -> do
             liftIO $ putStrLn $ show event
             l <- J.location event
-            sn <- J.sourceName l
-            source <- head . filter (sn `isSuffixOf`) <$> getSourceFiles
-            dat <- lines <$> (liftIO . readFile) source
-            liftIO $ putStrLn $ dat !! (J.lineNumber l - 1)
+            printSourceLine l
             commandLoop
             eventLoop
         J.VmDeath -> do
