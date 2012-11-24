@@ -279,19 +279,17 @@ commandLoop = do
                     `catchError` (\e -> liftIO . putStrLn $ show e) >>
                     commandLoop
                 NextCommand -> do
-                    ct <- lift $ currentThread <$> get
-                    case ct of
-                        Just curThread -> do
-                            J.enable $ J.addCountFilter
-                                            1
-                                            (J.createStepRequest
-                                                curThread
-                                                J.StepLine
-                                                J.StepOver)
-                            J.resumeVm
-                        Nothing -> do
-                            lift . lift . lift . outputStrLn $ "no previous breakpoint available"
-                            commandLoop
+                    ct <- lift getCurrentThread
+                    J.enable $ J.addCountFilter
+                                    1
+                                    (J.createStepRequest
+                                        ct
+                                        J.StepLine
+                                        J.StepOver)
+                    J.resumeVm
+                    `catchError` (\e -> do
+                                    liftIO . putStrLn $ show e
+                                    commandLoop)
                 UnknownCommand error -> do
                     lift . lift . lift . outputStrLn $ "Error during parsing the command: " ++ (show error)
                     commandLoop
