@@ -272,8 +272,12 @@ commandLoop = do
     case minput of
         Nothing -> do -- Ctrl-D was pressed.
             return False
+        Just "" -> do
+            liftIO $ putStrLn $ "Repeat previous command intended.\n"
+                             ++ "Not implemented yet"
+            commandLoop
         Just input -> -- Something was entered. Empty line as an option.
-            case parseCommand (fromJust minput) of
+            case parseCommand input of
                 QuitCommand -> return False
                 VersionCommand -> do
                     p <- J.version
