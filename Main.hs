@@ -21,6 +21,9 @@ import Text.ParserCombinators.Parsec
 import Text.ParserCombinators.Parsec.Char
 import Data.Char (isSpace)
 import qualified JarFind as JF
+import qualified Language.Java.Parser as JP
+import qualified Language.Java.Syntax as JS
+import Language.Java.Pretty (prettyPrint)
 
 import qualified Language.Java.Jdi as J
 
@@ -251,6 +254,17 @@ getCurrentThread = do
         Just v -> return v
         Nothing -> throwError (strMsg "No current thread is available")
 
+printSyntaxTree :: MonadException m =>
+    JS.Exp -> J.VirtualMachine (Debugger (ErrorT String (InputT m))) ()
+printSyntaxTree (JS.ExpName (JS.Name ((JS.Ident name):[]))) = do
+    ct <- lift getCurrentThread
+    fr <- head <$> J.allFrames ct
+    loc <- J.location fr
+    var <- head <$> J.variablesByName (J.method loc) name
+    v <- J.getValue fr var
+    liftIO $ putStrLn $ show v
+printSyntaxTree e = throwError $ "Processing of this expression is not implemented yet: " ++ (prettyPrint e)
+
 commandLoop :: MonadException m => J.VirtualMachine (Debugger (ErrorT String (InputT m))) ()
 commandLoop = do
     minput <- (lift . lift . lift) $ getInputLine "(jdb) "
@@ -276,13 +290,10 @@ commandLoop = do
                     lift . lift . lift . outputStrLn $ show l
                     commandLoop
                 PrintCommand arg -> do
-                    ct <- lift getCurrentThread
-                    fr <- head <$> J.allFrames ct
-                    loc <- J.location fr
-                    var <- head <$> J.variablesByName (J.method loc) arg
-                    v <- J.getValue fr var
-                    liftIO $ putStrLn $ show v
-                    `catchError` (\e -> liftIO . putStrLn $ show e) >>
+                    case JP.parser JP.exp arg of
+                        Right st -> (printSyntaxTree st)
+                                    `catchError` (\e -> liftIO . putStrLn $ show e)
+                        Left  e  -> liftIO . putStrLn $ "SyntaxError " ++ (show e)
                     commandLoop
                 NextCommand -> do
                     ct <- lift getCurrentThread
@@ -364,5 +375,5 @@ parseQuit = string "quit" >> return QuitCommand
 parsePrint :: CharParser st Command
 parsePrint = do
     string "print "
-    s <- many1 (noneOf " ")
+    s <- many1 (noneOf "")
     return $ PrintCommand s
