@@ -1,4 +1,5 @@
 import System.Console.Haskeline
+import System.Console.Haskeline.History (historyLines)
 import System.IO (readFile)
 import System.Console.Haskeline.Completion(CompletionFunc)
 import System.Console.GetOpt (getOpt, ArgOrder(..), OptDescr(..), ArgDescr(..))
@@ -272,12 +273,13 @@ commandLoop = do
     case minput of
         Nothing -> do -- Ctrl-D was pressed.
             return False
-        Just "" -> do
-            liftIO $ putStrLn $ "Repeat previous command intended.\n"
-                             ++ "Not implemented yet"
-            commandLoop
-        Just input -> -- Something was entered. Empty line as an option.
-            case parseCommand input of
+        Just input -> do -- Something was entered. Empty line as an option.
+            line <- if input == ""
+                            then do
+                                hist <- lift $ lift $ lift getHistory
+                                return $ head $ historyLines hist
+                            else return input
+            case parseCommand line of
                 QuitCommand -> return False
                 VersionCommand -> do
                     p <- J.version
