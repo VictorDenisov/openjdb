@@ -195,33 +195,34 @@ eventLoop :: J.VirtualMachine (Debugger (ErrorT String (InputT IO))) ()
 eventLoop = do
     es <- J.removeEvent
     let event = head $ J.events es
-    case J.eventKind event of
+    continue <- case J.eventKind event of
         J.ClassPrepare -> do
             liftIO $ putStrLn "Received ClassPrepare request"
             liftIO $ putStrLn $ show $ J.referenceType event
             setupBreakpoints $ J.referenceType event
             J.resume es
-            eventLoop
+            return True
         J.Breakpoint -> do
             lift . setCurrentThread $ J.thread event
             liftIO $ putStrLn $ show event
             l <- J.location event
             printSourceLine l
             commandLoop
-            eventLoop
         J.SingleStep -> do
             liftIO $ putStrLn $ show event
             l <- J.location event
             printSourceLine l
             commandLoop
-            eventLoop
         J.VmDeath -> do
             liftIO $ putStrLn $ show event
-            return ()
+            return False
         otherwise -> do
             liftIO $ putStrLn $ show event
             commandLoop
-            eventLoop
+    if continue
+        then eventLoop
+        else return ()
+
 
 className :: Command -> String
 className (BreakpointLineCommand cn _) = cn
@@ -265,20 +266,21 @@ printSyntaxTree (JS.ExpName (JS.Name ((JS.Ident name):[]))) = do
     liftIO $ putStrLn $ show v
 printSyntaxTree e = throwError $ "Processing of this expression is not implemented yet: " ++ (prettyPrint e)
 
-commandLoop :: MonadException m => J.VirtualMachine (Debugger (ErrorT String (InputT m))) ()
+commandLoop :: MonadException m => J.VirtualMachine (Debugger (ErrorT String (InputT m))) Bool
 commandLoop = do
     minput <- (lift . lift . lift) $ getInputLine "(jdb) "
     case minput of
-        Nothing -> return ()
-        Just input -> 
+        Nothing -> do -- Ctrl-D was pressed.
+            return False
+        Just input -> -- Something was entered. Empty line as an option.
             case parseCommand (fromJust minput) of
-                QuitCommand -> return ()
+                QuitCommand -> return False
                 VersionCommand -> do
                     p <- J.version
                     lift . lift . lift . outputStrLn $ show p
                     commandLoop
                 ContinueCommand ->
-                    J.resumeVm
+                    J.resumeVm >> return True
                 BreakpointLineCommand name line -> do
                     lift . addBreakpoint $ BreakpointLineCommand name line
                     commandLoop
@@ -304,6 +306,7 @@ commandLoop = do
                                         J.StepLine
                                         J.StepOver)
                     J.resumeVm
+                    return True
                     `catchError` (\e -> do
                                     liftIO . putStrLn $ show e
                                     commandLoop)
