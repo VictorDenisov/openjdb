@@ -1,0 +1,5 @@
+Due to heavy development of jdi library it's added to openjdb as a submodule.
+Jarfind library is not published on hackage yet.
+
+jarfind
+jdi
