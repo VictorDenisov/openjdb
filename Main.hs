@@ -264,7 +264,14 @@ printSyntaxTree (JS.ExpName (JS.Name ((JS.Ident name):[]))) = do
     loc <- J.location fr
     var <- head <$> J.variablesByName (J.method loc) name
     v <- J.getValue fr var
-    liftIO $ putStrLn $ show v
+    case J.valueType v of
+        J.CharValue -> do
+            c <- J.charValue v
+            liftIO $ putStrLn $ [c]
+        J.LongValue -> do
+            c <- J.longValue v
+            liftIO $ putStrLn $ show c
+        _ -> liftIO $ putStrLn $ show v
 printSyntaxTree e = throwError $ "Processing of this expression is not implemented yet: " ++ (prettyPrint e)
 
 commandLoop :: MonadException m => J.VirtualMachine (Debugger (ErrorT String (InputT m))) Bool
