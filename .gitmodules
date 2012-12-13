@@ -1,0 +1,6 @@
+[submodule "jdi"]
+	path = jdi
+	url = git@github.com:VictorDenisov/jdi.git
+[submodule "jarfind"]
+	path = jarfind
+	url = git@github.com:VictorDenisov/jarfind.git
