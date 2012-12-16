@@ -262,7 +262,9 @@ printSyntaxTree (JS.ExpName (JS.Name ((JS.Ident name):[]))) = do
     ct <- lift getCurrentThread
     fr <- head <$> J.allFrames ct
     loc <- J.location fr
-    var <- head <$> J.variablesByName (J.method loc) name
+    vars <- J.variables (J.method loc)
+    args <- J.arguments (J.method loc)
+    var <- head <$> filterM (((name ==) `liftM`) . J.name) (vars ++ args)
     v <- J.getValue fr var
     case J.valueType v of
         J.CharValue -> do
