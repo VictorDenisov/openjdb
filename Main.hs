@@ -266,13 +266,9 @@ printSyntaxTree (JS.ExpName (JS.Name ((JS.Ident name):[]))) = do
     args <- J.arguments (J.method loc)
     var <- head <$> filterM (((name ==) `liftM`) . J.name) (vars ++ args)
     v <- J.getValue fr var
-    case J.valueType v of
-        J.CharValue -> do
-            c <- J.charValue v
-            liftIO $ putStrLn $ [c]
-        J.LongValue -> do
-            c <- J.longValue v
-            liftIO $ putStrLn $ show c
+    case v of
+        J.CharValue c -> liftIO $ putStrLn $ [c]
+        J.LongValue c -> liftIO $ putStrLn $ show c
         _ -> liftIO $ putStrLn $ show v
 printSyntaxTree e = throwError $ "Processing of this expression is not implemented yet: " ++ (prettyPrint e)
 
