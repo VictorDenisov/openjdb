@@ -275,6 +275,15 @@ printSyntaxTree (JS.ArrayAccess (JS.ArrayIndex arrExp indExp)) = do
 printSyntaxTree (JS.Lit (JS.Int v)) = return (J.IntValue $ fromIntegral v)
 printSyntaxTree e = throwError $ "Processing of this expression is not implemented yet: " ++ (show e)
 
+showValue :: MonadException m =>
+             J.Value
+          -> J.VirtualMachine (Debugger (ErrorT String (InputT m))) String
+showValue (J.CharValue c)   = return [c]
+showValue (J.LongValue c)   = return $ show c
+showValue (J.StringValue s) = J.stringValue s
+showValue (J.ArrayValue a)  = intercalate ", " <$> (mapM showValue =<< (J.getArrValues a))
+showValue v                 = return $ show v
+
 commandLoop :: MonadException m => J.VirtualMachine (Debugger (ErrorT String (InputT m))) Bool
 commandLoop = do
     minput <- (lift . lift . lift) $ getInputLine "(jdb) "
@@ -309,11 +318,8 @@ commandLoop = do
                     case JP.parser JP.exp arg of
                         Right st -> do
                                         v <- printSyntaxTree st
-                                        case v of
-                                            J.CharValue c -> liftIO $ putStrLn $ [c]
-                                            J.LongValue c -> liftIO $ putStrLn $ show c
-                                            J.StringValue s -> liftIO . putStrLn =<< (J.stringValue s)
-                                            _ -> liftIO $ putStrLn $ show v
+                                        sv <- showValue v
+                                        liftIO $ putStrLn sv
                                       `catchError` (\e -> liftIO . putStrLn $ show e)
                         Left  e  -> liftIO . putStrLn $ "SyntaxError " ++ (show e)
                     commandLoop
