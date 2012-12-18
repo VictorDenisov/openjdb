@@ -257,7 +257,7 @@ getCurrentThread = do
         Nothing -> throwError (strMsg "No current thread is available")
 
 printSyntaxTree :: MonadException m =>
-    JS.Exp -> J.VirtualMachine (Debugger (ErrorT String (InputT m))) ()
+    JS.Exp -> J.VirtualMachine (Debugger (ErrorT String (InputT m))) J.Value
 printSyntaxTree (JS.ExpName (JS.Name ((JS.Ident name):[]))) = do
     ct <- lift getCurrentThread
     fr <- head <$> J.allFrames ct
@@ -265,12 +265,15 @@ printSyntaxTree (JS.ExpName (JS.Name ((JS.Ident name):[]))) = do
     vars <- J.variables (J.method loc)
     args <- J.arguments (J.method loc)
     var <- head <$> filterM (((name ==) `liftM`) . J.name) (vars ++ args)
-    v <- J.getValue fr var
-    case v of
-        J.CharValue c -> liftIO $ putStrLn $ [c]
-        J.LongValue c -> liftIO $ putStrLn $ show c
-        _ -> liftIO $ putStrLn $ show v
-printSyntaxTree e = throwError $ "Processing of this expression is not implemented yet: " ++ (prettyPrint e)
+    J.getValue fr var
+printSyntaxTree (JS.ArrayAccess (JS.ArrayIndex arrExp indExp)) = do
+    arr <- printSyntaxTree arrExp
+    ind <- printSyntaxTree indExp
+    case (arr, ind) of
+        ((J.ArrayValue ref), (J.IntValue i)) -> J.getArrValue ref i
+        otherwise -> throwError $ "Type error"
+printSyntaxTree (JS.Lit (JS.Int v)) = return (J.IntValue $ fromIntegral v)
+printSyntaxTree e = throwError $ "Processing of this expression is not implemented yet: " ++ (show e)
 
 commandLoop :: MonadException m => J.VirtualMachine (Debugger (ErrorT String (InputT m))) Bool
 commandLoop = do
@@ -304,8 +307,14 @@ commandLoop = do
                     commandLoop
                 PrintCommand arg -> do
                     case JP.parser JP.exp arg of
-                        Right st -> (printSyntaxTree st)
-                                    `catchError` (\e -> liftIO . putStrLn $ show e)
+                        Right st -> do
+                                        v <- printSyntaxTree st
+                                        case v of
+                                            J.CharValue c -> liftIO $ putStrLn $ [c]
+                                            J.LongValue c -> liftIO $ putStrLn $ show c
+                                            J.StringValue s -> liftIO . putStrLn =<< (J.stringValue s)
+                                            _ -> liftIO $ putStrLn $ show v
+                                      `catchError` (\e -> liftIO . putStrLn $ show e)
                         Left  e  -> liftIO . putStrLn $ "SyntaxError " ++ (show e)
                     commandLoop
                 NextCommand -> do
