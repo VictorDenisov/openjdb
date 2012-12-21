@@ -138,27 +138,56 @@ main = do
                  then putStrLn "1.0"
                  else if ((isPort `any` opts) && (isHost `any` opts))
                           then do res <- runInputT
-                                                (Settings
-                                                    (commandLineComplete cpClasses)
-                                                    Nothing
-                                                    True)
+                                            (Settings
+                                                (commandLineComplete cpClasses)
+                                                Nothing
+                                                True)
                                              $ runErrorT $ evalStateT (J.runVirtualMachine
                                                              (getHost opts)
                                                              (getPort opts)
                                                              (initialSetup >> eventLoop))
-                                                             (DebugConfig [] Nothing sourceFiles)
+                                                             (DebugConfig [] Nothing sourceFiles Nothing)
                                   case res of
                                         Left e -> putStrLn $ "Error during execution: " ++ e
                                         Right v -> putStrLn $ "Success"
                           else putStrLn "Host and port arguments are required"
 
 data DebugConfig = DebugConfig
-    { breakpoints :: [Command]
+    { breakpoints :: [Command] -- breakpoints whose classes are not loaded yet.
     , currentThread :: Maybe J.ThreadReference
     , sourceFiles :: [String]
+    , currentLocation :: Maybe J.Location
     }
 
+getCurrentLocation :: (Error e, MonadError e m) => Debugger m J.Location
+getCurrentLocation = do
+    l <- currentLocation `liftM` get
+    case l of
+        Just loc -> return loc
+        Nothing  -> throwError $ strMsg "Current location is unavailable"
+
+setCurrentLocation :: Monad m => J.Location -> Debugger m ()
+setCurrentLocation l = do
+    dc <- get
+    put $ dc {currentLocation = Just l}
+
 type Debugger = StateT DebugConfig
+
+printSourceLines :: J.VirtualMachine (Debugger (ErrorT String (InputT IO))) ()
+printSourceLines = do
+    l <- lift getCurrentLocation
+    liftIO $ putStrLn $ show l
+    sn <- J.sourceName l
+    let ln = J.lineNumber l
+    sourceList <- filter (sn `isSuffixOf`) <$> (lift getSourceFiles)
+    when (length sourceList > 1) $
+        throwError "there are more than one source file"
+    when (length sourceList == 0) $
+        throwError $ sn ++ ":" ++ show ln ++ " - source unavailable"
+    dat <- lines <$> (liftIO . readFile) (head sourceList)
+    let blockStart = max 0 (ln - 5)
+    liftIO $ putStrLn $ intercalate "\n" $ take 10 $ drop blockStart $ dat
+    `catchError` (\e -> liftIO . putStrLn $ show e)
 
 addBreakpoint :: Monad m => Command -> Debugger m ()
 addBreakpoint c = do
@@ -178,12 +207,14 @@ initialSetup = do
     J.enable J.createClassPrepareRequest
     return ()
 
-getSourceFiles = lift $ sourceFiles <$> get
+getSourceFiles :: (Error e, MonadError e m) => Debugger m [String]
+getSourceFiles = sourceFiles `liftM` get
 
-printSourceLine :: J.Location -> J.VirtualMachine (Debugger (ErrorT String (InputT IO))) ()
-printSourceLine l = do
+printSourceLine :: J.VirtualMachine (Debugger (ErrorT String (InputT IO))) ()
+printSourceLine = do
+    l <- lift getCurrentLocation
     sn <- J.sourceName l
-    sourceList <- filter (sn `isSuffixOf`) <$> getSourceFiles
+    sourceList <- filter (sn `isSuffixOf`) <$> (lift getSourceFiles)
     when (length sourceList > 1) $
         throwError "there are more than one source file"
     when (length sourceList == 0) $
@@ -207,12 +238,14 @@ eventLoop = do
             lift . setCurrentThread $ J.thread event
             liftIO $ putStrLn $ show event
             l <- J.location event
-            printSourceLine l
+            lift $ setCurrentLocation l
+            printSourceLine
             commandLoop
         J.SingleStep -> do
             liftIO $ putStrLn $ show event
             l <- J.location event
-            printSourceLine l
+            lift $ setCurrentLocation l
+            printSourceLine
             commandLoop
         J.VmDeath -> do
             liftIO $ putStrLn $ show event
@@ -284,7 +317,7 @@ showValue (J.StringValue s) = J.stringValue s
 showValue (J.ArrayValue a)  = intercalate ", " <$> (mapM showValue =<< (J.getArrValues a))
 showValue v                 = return $ show v
 
-commandLoop :: MonadException m => J.VirtualMachine (Debugger (ErrorT String (InputT m))) Bool
+commandLoop :: J.VirtualMachine (Debugger (ErrorT String (InputT IO))) Bool
 commandLoop = do
     minput <- (lift . lift . lift) $ getInputLine "(jdb) "
     case minput of
@@ -311,8 +344,7 @@ commandLoop = do
                     lift . addBreakpoint $ BreakpointMethodCommand name method
                     commandLoop
                 ListCommand -> do
-                    l <- lift listBreakpoints
-                    lift . lift . lift . outputStrLn $ show l
+                    printSourceLines
                     commandLoop
                 PrintCommand arg -> do
                     case JP.parser JP.exp arg of
