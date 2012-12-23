@@ -6,7 +6,8 @@ import System.Console.GetOpt (getOpt, ArgOrder(..), OptDescr(..), ArgDescr(..))
 import System.Environment (getArgs)
 import Network
 import GHC.IO.Handle
-import Data.List (intercalate, find, isPrefixOf, isSuffixOf, dropWhileEnd, dropWhile)
+import Data.List (intercalate, find, isPrefixOf,
+                  isSuffixOf, dropWhileEnd, dropWhile)
 import Data.Maybe (fromMaybe, fromJust)
 import GHC.Word (Word16, Word32, Word8)
 import Network.Socket.Internal (PortNumber(..))
@@ -40,8 +41,10 @@ options =
     [ Option ['v'] ["version"] (NoArg Version) "show version number"
     , Option ['p'] ["port"]    (ReqArg Port "PORT") "port number"
     , Option ['h'] ["host"]    (ReqArg Host "HOST") "host number"
-    , Option ['c'] ["class-path"]    (ReqArg ClassPath "CLASS-PATH") "class-path path"
-    , Option ['s'] ["source-path"]   (ReqArg SourcePath "SOURCE-PATH") "source-path path"
+    , Option ['c'] ["class-path"] (ReqArg ClassPath "CLASS-PATH")
+                                  "class-path path"
+    , Option ['s'] ["source-path"] (ReqArg SourcePath "SOURCE-PATH")
+                                   "source-path path"
     ]
 
 cmdArgsErrMsg :: [String] -> String
@@ -66,7 +69,12 @@ isSourcePath (SourcePath _) = True
 isSourcePath _ = False
 
 getPort :: [Flag] -> PortID
-getPort opts = PortNumber $ fromIntegral $ ((read $ port $ fromMaybe (Port "2044") (find isPort opts)) :: Int)
+getPort opts = PortNumber $ fromIntegral $ fromMaybe 2044 portValue
+    where
+        portValue :: Maybe Int
+        portValue = do
+            v <- find isPort opts
+            return $ read $ port v
 
 getHost :: [Flag] -> String
 getHost opts = host $ fromMaybe (Host "localhost") (find isHost opts)
@@ -80,8 +88,12 @@ extractClassFileSource fs = JF.ClassPath $ map spToCfp $ filter isClassPath fs
                      then JF.ClassFile path
                      else error $ "unknown extension of the file: " ++ path
 
-data CommandElement m st = CommandName String (CharParser st String) (CompletionFunc m)
-                         | ClassName   String (CharParser st String) (CompletionFunc m)
+data CommandElement m st = CommandName String
+                                       (CharParser st String)
+                                       (CompletionFunc m)
+                         | ClassName   String
+                                       (CharParser st String)
+                                       (CompletionFunc m)
                          | MethodName  String
                          | LineNum     Int
 
@@ -218,7 +230,8 @@ printSourceLine = do
     when (length sourceList > 1) $
         throwError "there are more than one source file"
     when (length sourceList == 0) $
-        throwError $ sn ++ ":" ++ show (J.lineNumber l) ++ " - source unavailable"
+        throwError
+            $ sn ++ ":" ++ show (J.lineNumber l) ++ " - source unavailable"
     dat <- lines <$> (liftIO . readFile) (head sourceList)
     liftIO $ putStrLn $ dat !! (J.lineNumber l - 1)
     `catchError` (\e -> liftIO . putStrLn $ show e)
@@ -262,25 +275,32 @@ className :: Command -> String
 className (BreakpointLineCommand cn _) = cn
 className (BreakpointMethodCommand cn _) = cn
 
-setupBreakpoints :: J.ReferenceType -> J.VirtualMachine (Debugger (ErrorT String (InputT IO))) ()
+setupBreakpoints :: J.ReferenceType
+                 -> J.VirtualMachine (Debugger (ErrorT String (InputT IO))) ()
 setupBreakpoints refType = do
     refName <- J.name refType
     bpList <- filter ((refName ==) . className) <$> lift listBreakpoints
     forM_ bpList (setupBreakpoint refType)
 
-setupBreakpoint :: J.ReferenceType -> Command -> J.VirtualMachine (Debugger (ErrorT String (InputT IO))) ()
+setupBreakpoint :: J.ReferenceType
+                -> Command
+                -> J.VirtualMachine (Debugger (ErrorT String (InputT IO))) ()
 setupBreakpoint refType (BreakpointLineCommand nm line) = do
     lineLocations <- J.allLineLocations refType
     let matchingLines = filter ((line ==) . J.lineNumber) lineLocations
     if null matchingLines
-        then liftIO . putStrLn $ "there is no executable source code for line: " ++ show line
+        then liftIO . putStrLn
+                $ "there is no executable source code for line: " ++ show line
         else void $ J.enable $ J.createBreakpointRequest (head matchingLines)
 setupBreakpoint refType (BreakpointMethodCommand nm method) = do
     methods <- J.allMethods refType
     matchingMethods <- filterM ((liftM (method ==)) . J.name) methods
     if null matchingMethods
         then liftIO . putStrLn $ "there is no method with name: " ++ method
-        else void $ J.enable =<< J.createBreakpointRequest <$> (J.location $ head matchingMethods)
+        else do
+            l <- J.location $ head matchingMethods
+            let br = J.createBreakpointRequest l
+            void $ J.enable br
 
 getCurrentThread :: (Error e, MonadError e m) => Debugger m J.ThreadReference
 getCurrentThread = do
@@ -306,7 +326,8 @@ printSyntaxTree (JS.ArrayAccess (JS.ArrayIndex arrExp indExp)) = do
         ((J.ArrayValue ref), (J.IntValue i)) -> J.getArrValue ref i
         otherwise -> throwError $ "Type error"
 printSyntaxTree (JS.Lit (JS.Int v)) = return (J.IntValue $ fromIntegral v)
-printSyntaxTree e = throwError $ "Processing of this expression is not implemented yet: " ++ (show e)
+printSyntaxTree e = throwError
+        $ "Processing of this expression is not implemented yet: " ++ (show e)
 
 showValue :: MonadException m =>
              J.Value
@@ -314,7 +335,10 @@ showValue :: MonadException m =>
 showValue (J.CharValue c)   = return [c]
 showValue (J.LongValue c)   = return $ show c
 showValue (J.StringValue s) = J.stringValue s
-showValue (J.ArrayValue a)  = intercalate ", " <$> (mapM showValue =<< (J.getArrValues a))
+showValue (J.ArrayValue a)  = do
+    av <- J.getArrValues a
+    vs <- mapM showValue av
+    return $ intercalate ", " vs
 showValue v                 = return $ show v
 
 commandLoop :: J.VirtualMachine (Debugger (ErrorT String (InputT IO))) Bool
@@ -349,11 +373,12 @@ commandLoop = do
                 PrintCommand arg -> do
                     case JP.parser JP.exp arg of
                         Right st -> do
-                                        v <- printSyntaxTree st
-                                        sv <- showValue v
-                                        liftIO $ putStrLn sv
-                                      `catchError` (\e -> liftIO . putStrLn $ show e)
-                        Left  e  -> liftIO . putStrLn $ "SyntaxError " ++ (show e)
+                                v <- printSyntaxTree st
+                                sv <- showValue v
+                                liftIO $ putStrLn sv
+                              `catchError` (\e -> liftIO . putStrLn $ show e)
+                        Left  e  ->
+                               liftIO . putStrLn $ "SyntaxError " ++ (show e)
                     commandLoop
                 NextCommand -> do
                     ct <- lift getCurrentThread
@@ -369,7 +394,8 @@ commandLoop = do
                                     liftIO . putStrLn $ show e
                                     commandLoop)
                 UnknownCommand error -> do
-                    lift . lift . lift . outputStrLn $ "Error during parsing the command: " ++ (show error)
+                    liftIO $ putStrLn
+                        $ "Error during parsing the command: " ++ (show error)
                     commandLoop
 
 data Command = VersionCommand
