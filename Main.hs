@@ -73,7 +73,7 @@ getPort opts = PortNumber $ fromIntegral $ fromMaybe 2044 portValue
             return $ read $ port v
 
 getHost :: [Flag] -> String
-getHost opts = host $ fromMaybe (Host "localhost") (find isHost opts)
+getHost opts = fromMaybe "localhost" $ find isHost opts >>= return . host
 
 extractClassFileSource :: [Flag] -> JF.ClassFileSource
 extractClassFileSource fs = JF.ClassPath $ map spToCfp $ filter isClassPath fs
@@ -144,9 +144,7 @@ main = do
     args <- getArgs
     let (opts, unparsed, errors) = getOpt Permute options args
     when (not $ null errors) $ fail $ cmdArgsErrMsg errors
-    when (Version `elem` opts) $ do
-        putStrLn "0.0.1"
-        exitSuccess
+    when (Version `elem` opts) $ putStrLn "0.0.1" >> exitSuccess
     when (((not . isPort) `all` opts) && ((not . isHost) `all` opts))
         $ fail "Host and port arguments are required"
 
