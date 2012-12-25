@@ -347,10 +347,12 @@ commandLoop = do
             return False
         Just input -> do -- Something was entered. Empty line as an option.
             line <- if input == ""
-                            then do
-                                hist <- liftInpTtoVM getHistory
-                                return $ head $ historyLines hist
-                            else return input
+                        then do
+                            hlines <- historyLines <$> liftInpTtoVM getHistory
+                            if null hlines
+                                then return ""
+                                else return $ head hlines
+                        else return input
             case parseCommand line of
                 QuitCommand -> return False
                 VersionCommand -> do
@@ -391,9 +393,9 @@ commandLoop = do
                     `catchError` (\e -> do
                                     liftIO . putStrLn $ show e
                                     commandLoop)
-                UnknownCommand error -> do
+                ErroneousCommand error -> do
                     liftIO $ putStrLn
-                        $ "Error during parsing the command: " ++ (show error)
+                        $ "Error during parsing the command: " ++ error
                     commandLoop
 
 data Command = VersionCommand
@@ -404,12 +406,13 @@ data Command = VersionCommand
              | ListCommand
              | NextCommand
              | PrintCommand String
-             | UnknownCommand ParseError
+             | ErroneousCommand String
                deriving Show
 
 parseCommand :: String -> Command
+parseCommand "" = ErroneousCommand "Empty line. No previous history."
 parseCommand input = case parse commandParser "(unknown)" input of
-    Left parseError -> UnknownCommand parseError
+    Left parseError -> ErroneousCommand $ show parseError
     Right command -> command
 
 commandParser :: CharParser st Command
