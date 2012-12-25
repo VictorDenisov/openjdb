@@ -313,8 +313,9 @@ printSyntaxTree (JS.ExpName (JS.Name ((JS.Ident name):[]))) = do
     loc <- J.location fr
     vars <- J.variables (J.method loc)
     args <- J.arguments (J.method loc)
-    var <- head <$> filterM (((name ==) `liftM`) . J.name) (vars ++ args)
-    J.getValue fr var
+    allVars <- filterM (((name ==) `liftM`) . J.name) (vars ++ args)
+    when (null allVars) $ throwError $ "Unknown variable name: " ++ name
+    J.getValue fr $ head allVars
 printSyntaxTree (JS.ArrayAccess (JS.ArrayIndex arrExp indExp)) = do
     arr <- printSyntaxTree arrExp
     ind <- printSyntaxTree indExp
