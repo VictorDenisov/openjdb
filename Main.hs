@@ -337,23 +337,25 @@ showValue (J.ArrayValue a)  = do
     return $ intercalate ", " vs
 showValue v                 = return $ show v
 
+liftInpTtoVM = lift . lift . lift
+
 commandLoop :: J.VirtualMachine (Debugger (ErrorT String (InputT IO))) Bool
 commandLoop = do
-    minput <- (lift . lift . lift) $ getInputLine "(jdb) "
+    minput <- liftInpTtoVM $ getInputLine "(jdb) "
     case minput of
         Nothing -> do -- Ctrl-D was pressed.
             return False
         Just input -> do -- Something was entered. Empty line as an option.
             line <- if input == ""
                             then do
-                                hist <- lift $ lift $ lift getHistory
+                                hist <- liftInpTtoVM getHistory
                                 return $ head $ historyLines hist
                             else return input
             case parseCommand line of
                 QuitCommand -> return False
                 VersionCommand -> do
                     p <- J.version
-                    lift . lift . lift . outputStrLn $ show p
+                    liftIO $ putStrLn $ show p
                     commandLoop
                 ContinueCommand ->
                     J.resumeVm >> return True
