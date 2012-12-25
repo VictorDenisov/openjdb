@@ -1,6 +1,7 @@
 import System.Console.Haskeline
 import System.Console.Haskeline.History (historyLines)
 import System.IO (readFile)
+import System.Exit (exitSuccess)
 import System.Console.Haskeline.Completion(CompletionFunc)
 import System.Console.GetOpt (getOpt, ArgOrder(..), OptDescr(..), ArgDescr(..))
 import System.Environment (getArgs)
@@ -46,11 +47,6 @@ options =
     , Option ['s'] ["source-path"] (ReqArg SourcePath "SOURCE-PATH")
                                    "source-path path"
     ]
-
-cmdArgsErrMsg :: [String] -> String
-cmdArgsErrMsg errors = 
-    "There are errors in command args parsing:\n\n"
-    ++ concat errors
 
 isPort :: Flag -> Bool
 isPort (Port _) = True
@@ -138,31 +134,33 @@ commandLineComplete classes (leftLine, _) = do
         methodsOfClass = filter isMethod . allMembersOfClass
         allAvailablePrintables = []
 
+cmdArgsErrMsg :: [String] -> String
+cmdArgsErrMsg errors =
+    "There are errors in command args parsing:\n\n"
+    ++ concat errors
+
 main :: IO ()
 main = do
     args <- getArgs
     let (opts, unparsed, errors) = getOpt Permute options args
+    when (not $ null errors) $ fail $ cmdArgsErrMsg errors
+    when (Version `elem` opts) $ do
+        putStrLn "0.0.1"
+        exitSuccess
+    when (((not . isPort) `all` opts) && ((not . isHost) `all` opts))
+        $ fail "Host and port arguments are required"
+
     cpClasses <- map snd <$> (JF.parseFileSource $ extractClassFileSource opts)
     let sourceFiles = map path $ filter isSourcePath opts
-    if not $ null errors
-        then putStr $ cmdArgsErrMsg errors
-        else if Version `elem` opts
-                 then putStrLn "1.0"
-                 else if ((isPort `any` opts) && (isHost `any` opts))
-                          then do res <- runInputT
-                                            (Settings
-                                                (commandLineComplete cpClasses)
-                                                Nothing
-                                                True)
-                                             $ runErrorT $ evalStateT (J.runVirtualMachine
-                                                             (getHost opts)
-                                                             (getPort opts)
-                                                             (initialSetup >> eventLoop))
-                                                             (DebugConfig [] Nothing sourceFiles Nothing)
-                                  case res of
-                                        Left e -> putStrLn $ "Error during execution: " ++ e
-                                        Right v -> putStrLn $ "Success"
-                          else putStrLn "Host and port arguments are required"
+    res <- runInputT (Settings (commandLineComplete cpClasses) Nothing True)
+               $ runErrorT $ evalStateT (J.runVirtualMachine
+                               (getHost opts)
+                               (getPort opts)
+                               (initialSetup >> eventLoop))
+                               (DebugConfig [] Nothing sourceFiles Nothing)
+    case res of
+          Left e -> putStrLn $ "Error during execution: " ++ e
+          Right v -> putStrLn $ "Success"
 
 data DebugConfig = DebugConfig
     { breakpoints :: [Command] -- breakpoints whose classes are not loaded yet.
