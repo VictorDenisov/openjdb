@@ -181,6 +181,10 @@ setCurrentLocation l = do
 
 type Debugger = StateT DebugConfig
 
+alignNum :: Int -> Int -> String
+alignNum width number = replicate (width - length s) ' ' ++ s ++ " "
+    where s = show number
+
 linesFromSourceName :: (MonadIO m, Error e, MonadError e m)
                     => String -> Debugger m [String]
 linesFromSourceName sourceName = do
@@ -191,7 +195,9 @@ linesFromSourceName sourceName = do
         then return []
         else do
             rawLines <- lines `liftM` (liftIO . readFile) (head sourceList)
-            return $ zipWith (++) (map show [1..(length rawLines)]) rawLines
+            let l = (length rawLines)
+            let width = length $ show l
+            return $ zipWith (++) (map (alignNum width) [1..l]) rawLines
 
 printSourceLines :: J.VirtualMachine (Debugger (ErrorT String (InputT IO))) ()
 printSourceLines = do
