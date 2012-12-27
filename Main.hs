@@ -317,9 +317,9 @@ getCurrentThread = do
         Just v -> return v
         Nothing -> throwError (strMsg "No current thread is available")
 
-printSyntaxTree :: MonadException m =>
+calcSyntaxTree :: MonadException m =>
     JS.Exp -> J.VirtualMachine (Debugger (ErrorT String (InputT m))) J.Value
-printSyntaxTree (JS.ExpName (JS.Name ((JS.Ident name):[]))) = do
+calcSyntaxTree (JS.ExpName (JS.Name ((JS.Ident name):[]))) = do
     ct <- lift getCurrentThread
     fr <- head <$> J.allFrames ct
     loc <- J.location fr
@@ -328,14 +328,14 @@ printSyntaxTree (JS.ExpName (JS.Name ((JS.Ident name):[]))) = do
     allVars <- filterM (((name ==) `liftM`) . J.name) (vars ++ args)
     when (null allVars) $ throwError $ "Unknown variable name: " ++ name
     J.getValue fr $ head allVars
-printSyntaxTree (JS.ArrayAccess (JS.ArrayIndex arrExp indExp)) = do
-    arr <- printSyntaxTree arrExp
-    ind <- printSyntaxTree indExp
+calcSyntaxTree (JS.ArrayAccess (JS.ArrayIndex arrExp indExp)) = do
+    arr <- calcSyntaxTree arrExp
+    ind <- calcSyntaxTree indExp
     case (arr, ind) of
         ((J.ArrayValue ref), (J.IntValue i)) -> J.getArrValue ref i
         otherwise -> throwError $ "Type error"
-printSyntaxTree (JS.Lit (JS.Int v)) = return (J.IntValue $ fromIntegral v)
-printSyntaxTree e = throwError
+calcSyntaxTree (JS.Lit (JS.Int v)) = return (J.IntValue $ fromIntegral v)
+calcSyntaxTree e = throwError
         $ "Processing of this expression is not implemented yet: " ++ (show e)
 
 showValue :: MonadException m =>
@@ -386,7 +386,7 @@ commandLoop = do
                 PrintCommand arg -> do
                     case JP.parser JP.exp arg of
                         Right st -> do
-                                v <- printSyntaxTree st
+                                v <- calcSyntaxTree st
                                 sv <- showValue v
                                 liftIO $ putStrLn sv
                               `catchError` (\e -> liftIO . putStrLn $ show e)
