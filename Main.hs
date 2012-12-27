@@ -343,11 +343,11 @@ showValue :: MonadException m =>
           -> J.VirtualMachine (Debugger (ErrorT String (InputT m))) String
 showValue (J.CharValue c)   = return [c]
 showValue (J.LongValue c)   = return $ show c
-showValue (J.StringValue s) = J.stringValue s
+showValue (J.StringValue s) = show <$> J.stringValue s
 showValue (J.ArrayValue a)  = do
     av <- J.getArrValues a
     vs <- mapM showValue av
-    return $ intercalate ", " vs
+    return $ "[" ++ intercalate ", " vs ++ "]"
 showValue v                 = return $ show v
 
 liftInpTtoVM = lift . lift . lift
