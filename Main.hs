@@ -93,7 +93,7 @@ data CommandElement m st = CommandName String
                          | MethodName  String
                          | LineNum     Int
 
-cmdList = ["quit", "version", "breakpoint", "next", "continue", "print"]
+cmdList = ["quit", "version", "breakpoint", "next", "continue", "print", "list"]
 
 trim = dropWhileEnd isSpace . (dropWhile isSpace)
 
