@@ -181,18 +181,27 @@ setCurrentLocation l = do
 
 type Debugger = StateT DebugConfig
 
+linesFromSourceName :: (MonadIO m, Error e, MonadError e m)
+                    => String -> Debugger m [String]
+linesFromSourceName sourceName = do
+    sourceList <- filter (sourceName `isSuffixOf`) `liftM` getSourceFiles
+    when (length sourceList > 1) $
+        throwError $ strMsg "there are more than one source file"
+    if null sourceList
+        then return []
+        else do
+            rawLines <- lines `liftM` (liftIO . readFile) (head sourceList)
+            return $ zipWith (++) (map show [1..(length rawLines)]) rawLines
+
 printSourceLines :: J.VirtualMachine (Debugger (ErrorT String (InputT IO))) ()
 printSourceLines = do
     l <- lift getCurrentLocation
     liftIO $ putStrLn $ show l
     sn <- J.sourceName l
     let ln = J.lineNumber l
-    sourceList <- filter (sn `isSuffixOf`) <$> (lift getSourceFiles)
-    when (length sourceList > 1) $
-        throwError "there are more than one source file"
-    when (length sourceList == 0) $
+    dat <- lift $ linesFromSourceName sn
+    when (null dat) $
         throwError $ sn ++ ":" ++ show ln ++ " - source unavailable"
-    dat <- lines <$> (liftIO . readFile) (head sourceList)
     let blockStart = max 0 (ln - 5)
     liftIO $ putStrLn $ intercalate "\n" $ take 10 $ drop blockStart $ dat
     `catchError` (\e -> liftIO . putStrLn $ show e)
@@ -221,15 +230,12 @@ getSourceFiles = sourceFiles `liftM` get
 printSourceLine :: J.VirtualMachine (Debugger (ErrorT String (InputT IO))) ()
 printSourceLine = do
     l <- lift getCurrentLocation
+    let ln = J.lineNumber l
     sn <- J.sourceName l
-    sourceList <- filter (sn `isSuffixOf`) <$> (lift getSourceFiles)
-    when (length sourceList > 1) $
-        throwError "there are more than one source file"
-    when (length sourceList == 0) $
-        throwError
-            $ sn ++ ":" ++ show (J.lineNumber l) ++ " - source unavailable"
-    dat <- lines <$> (liftIO . readFile) (head sourceList)
-    liftIO $ putStrLn $ dat !! (J.lineNumber l - 1)
+    dat <- lift $ linesFromSourceName sn
+    when (null dat) $
+        throwError $ sn ++ ":" ++ show ln ++ " - source unavailable"
+    liftIO $ putStrLn $ dat !! (ln - 1)
     `catchError` (\e -> liftIO . putStrLn $ show e)
 
 eventLoop :: J.VirtualMachine (Debugger (ErrorT String (InputT IO))) ()
