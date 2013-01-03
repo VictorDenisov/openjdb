@@ -29,6 +29,18 @@ import qualified Language.Java.Syntax as JS
 import Language.Java.Pretty (prettyPrint)
 
 import qualified Language.Java.Jdi as J
+import qualified Language.Java.Jdi.VirtualMachine as Vm
+import qualified Language.Java.Jdi.Event as E
+import qualified Language.Java.Jdi.EventSet as ES
+import qualified Language.Java.Jdi.EventRequest as ER
+import qualified Language.Java.Jdi.ReferenceType as RT
+import qualified Language.Java.Jdi.ArrayReference as AR
+import qualified Language.Java.Jdi.StringReference as SR
+import qualified Language.Java.Jdi.Value as V
+import qualified Language.Java.Jdi.StackFrame as SF
+import qualified Language.Java.Jdi.ThreadReference as TR
+import qualified Language.Java.Jdi.Method as M
+import qualified Language.Java.Jdi.Location as L
 
 data Flag = Version
           | Port { port :: String }
@@ -151,7 +163,7 @@ main = do
     cpClasses <- map snd <$> (JF.parseFileSource $ extractClassFileSource opts)
     let sourceFiles = map path $ filter isSourcePath opts
     res <- runInputT (Settings (commandLineComplete cpClasses) Nothing True)
-               $ runErrorT $ evalStateT (J.runVirtualMachine
+               $ runErrorT $ evalStateT (Vm.runVirtualMachine
                                (getHost opts)
                                (getPort opts)
                                (initialSetup >> eventLoop))
@@ -162,19 +174,19 @@ main = do
 
 data DebugConfig = DebugConfig
     { breakpoints :: [Command] -- breakpoints whose classes are not loaded yet.
-    , currentThread :: Maybe J.ThreadReference
+    , currentThread :: Maybe TR.ThreadReference
     , sourceFiles :: [String]
-    , currentLocation :: Maybe J.Location
+    , currentLocation :: Maybe L.Location
     }
 
-getCurrentLocation :: (Error e, MonadError e m) => Debugger m J.Location
+getCurrentLocation :: (Error e, MonadError e m) => Debugger m L.Location
 getCurrentLocation = do
     l <- currentLocation `liftM` get
     case l of
         Just loc -> return loc
         Nothing  -> throwError $ strMsg "Current location is unavailable"
 
-setCurrentLocation :: Monad m => J.Location -> Debugger m ()
+setCurrentLocation :: Monad m => L.Location -> Debugger m ()
 setCurrentLocation l = do
     dc <- get
     put $ dc {currentLocation = Just l}
@@ -199,12 +211,12 @@ linesFromSourceName sourceName = do
             let width = length $ show l
             return $ zipWith (++) (map (alignNum width) [1..l]) rawLines
 
-printSourceLines :: J.VirtualMachine (Debugger (ErrorT String (InputT IO))) ()
+printSourceLines :: Vm.VirtualMachine (Debugger (ErrorT String (InputT IO))) ()
 printSourceLines = do
     l <- lift getCurrentLocation
     liftIO $ putStrLn $ show l
     sn <- J.sourceName l
-    let ln = J.lineNumber l
+    let ln = L.lineNumber l
     dat <- lift $ linesFromSourceName sn
     when (null dat) $
         throwError $ sn ++ ":" ++ show ln ++ " - source unavailable"
@@ -220,23 +232,23 @@ addBreakpoint c = do
 listBreakpoints :: Monad m => Debugger m [Command]
 listBreakpoints = breakpoints `liftM` get
 
-setCurrentThread :: Monad m => J.ThreadReference -> Debugger m ()
+setCurrentThread :: Monad m => TR.ThreadReference -> Debugger m ()
 setCurrentThread tr = do
     dc <- get
     put $ dc {currentThread = Just tr}
 
-initialSetup :: J.VirtualMachine (Debugger (ErrorT String (InputT IO))) ()
+initialSetup :: Vm.VirtualMachine (Debugger (ErrorT String (InputT IO))) ()
 initialSetup = do
-    J.enable J.createClassPrepareRequest
+    ER.enable ER.createClassPrepareRequest
     return ()
 
 getSourceFiles :: (Error e, MonadError e m) => Debugger m [String]
 getSourceFiles = sourceFiles `liftM` get
 
-printSourceLine :: J.VirtualMachine (Debugger (ErrorT String (InputT IO))) ()
+printSourceLine :: Vm.VirtualMachine (Debugger (ErrorT String (InputT IO))) ()
 printSourceLine = do
     l <- lift getCurrentLocation
-    let ln = J.lineNumber l
+    let ln = L.lineNumber l
     sn <- J.sourceName l
     dat <- lift $ linesFromSourceName sn
     when (null dat) $
@@ -244,31 +256,31 @@ printSourceLine = do
     liftIO $ putStrLn $ dat !! (ln - 1)
     `catchError` (\e -> liftIO . putStrLn $ show e)
 
-eventLoop :: J.VirtualMachine (Debugger (ErrorT String (InputT IO))) ()
+eventLoop :: Vm.VirtualMachine (Debugger (ErrorT String (InputT IO))) ()
 eventLoop = do
-    es <- J.removeEvent
-    let event = head $ J.events es
-    continue <- case J.eventKind event of
-        J.ClassPrepare -> do
+    es <- ES.removeEvent
+    let event = head $ ES.events es
+    continue <- case E.eventKind event of
+        E.ClassPrepare -> do
             liftIO $ putStrLn "Received ClassPrepare request"
-            liftIO $ putStrLn $ show $ J.referenceType event
-            setupBreakpoints $ J.referenceType event
+            liftIO $ putStrLn $ show $ E.referenceType event
+            setupBreakpoints $ E.referenceType event
             J.resume es
             return True
-        J.Breakpoint -> do
-            lift . setCurrentThread $ J.thread event
+        E.Breakpoint -> do
+            lift . setCurrentThread $ E.thread event
             liftIO $ putStrLn $ show event
             l <- J.location event
             lift $ setCurrentLocation l
             printSourceLine
             commandLoop
-        J.SingleStep -> do
+        E.SingleStep -> do
             liftIO $ putStrLn $ show event
             l <- J.location event
             lift $ setCurrentLocation l
             printSourceLine
             commandLoop
-        J.VmDeath -> do
+        E.VmDeath -> do
             liftIO $ putStrLn $ show event
             return False
         otherwise -> do
@@ -283,34 +295,34 @@ className :: Command -> String
 className (BreakpointLineCommand cn _) = cn
 className (BreakpointMethodCommand cn _) = cn
 
-setupBreakpoints :: J.ReferenceType
-                 -> J.VirtualMachine (Debugger (ErrorT String (InputT IO))) ()
+setupBreakpoints :: RT.ReferenceType
+                 -> Vm.VirtualMachine (Debugger (ErrorT String (InputT IO))) ()
 setupBreakpoints refType = do
     refName <- J.name refType
     bpList <- filter ((refName ==) . className) <$> lift listBreakpoints
     forM_ bpList (setupBreakpoint refType)
 
-setupBreakpoint :: J.ReferenceType
+setupBreakpoint :: RT.ReferenceType
                 -> Command
-                -> J.VirtualMachine (Debugger (ErrorT String (InputT IO))) ()
+                -> Vm.VirtualMachine (Debugger (ErrorT String (InputT IO))) ()
 setupBreakpoint refType (BreakpointLineCommand nm line) = do
     lineLocations <- J.allLineLocations refType
-    let matchingLines = filter ((line ==) . J.lineNumber) lineLocations
+    let matchingLines = filter ((line ==) . L.lineNumber) lineLocations
     if null matchingLines
         then liftIO . putStrLn
                 $ "there is no executable source code for line: " ++ show line
-        else void $ J.enable $ J.createBreakpointRequest (head matchingLines)
+        else void $ ER.enable $ ER.createBreakpointRequest (head matchingLines)
 setupBreakpoint refType (BreakpointMethodCommand nm method) = do
-    methods <- J.allMethods refType
+    methods <- RT.allMethods refType
     matchingMethods <- filterM ((liftM (method ==)) . J.name) methods
     if null matchingMethods
         then liftIO . putStrLn $ "there is no method with name: " ++ method
         else do
             l <- J.location $ head matchingMethods
-            let br = J.createBreakpointRequest l
-            void $ J.enable br
+            let br = ER.createBreakpointRequest l
+            void $ ER.enable br
 
-getCurrentThread :: (Error e, MonadError e m) => Debugger m J.ThreadReference
+getCurrentThread :: (Error e, MonadError e m) => Debugger m TR.ThreadReference
 getCurrentThread = do
     value <- currentThread `liftM` get
     case value of
@@ -318,41 +330,41 @@ getCurrentThread = do
         Nothing -> throwError (strMsg "No current thread is available")
 
 calcSyntaxTree :: MonadException m =>
-    JS.Exp -> J.VirtualMachine (Debugger (ErrorT String (InputT m))) J.Value
+    JS.Exp -> Vm.VirtualMachine (Debugger (ErrorT String (InputT m))) V.Value
 calcSyntaxTree (JS.ExpName (JS.Name ((JS.Ident name):[]))) = do
     ct <- lift getCurrentThread
-    fr <- head <$> J.allFrames ct
+    fr <- head <$> TR.allFrames ct
     loc <- J.location fr
-    vars <- J.variables (J.method loc)
-    args <- J.arguments (J.method loc)
+    vars <- M.variables (L.method loc)
+    args <- M.arguments (L.method loc)
     allVars <- filterM (((name ==) `liftM`) . J.name) (vars ++ args)
     when (null allVars) $ throwError $ "Unknown variable name: " ++ name
-    J.getValue fr $ head allVars
+    SF.getValue fr $ head allVars
 calcSyntaxTree (JS.ArrayAccess (JS.ArrayIndex arrExp indExp)) = do
     arr <- calcSyntaxTree arrExp
     ind <- calcSyntaxTree indExp
     case (arr, ind) of
-        ((J.ArrayValue ref), (J.IntValue i)) -> J.getArrValue ref i
+        ((V.ArrayValue ref), (V.IntValue i)) -> AR.getValue ref i
         otherwise -> throwError $ "Type error"
-calcSyntaxTree (JS.Lit (JS.Int v)) = return (J.IntValue $ fromIntegral v)
+calcSyntaxTree (JS.Lit (JS.Int v)) = return (V.IntValue $ fromIntegral v)
 calcSyntaxTree e = throwError
         $ "Processing of this expression is not implemented yet: " ++ (show e)
 
 showValue :: MonadException m =>
-             J.Value
-          -> J.VirtualMachine (Debugger (ErrorT String (InputT m))) String
-showValue (J.CharValue c)   = return [c]
-showValue (J.LongValue c)   = return $ show c
-showValue (J.StringValue s) = show <$> J.stringValue s
-showValue (J.ArrayValue a)  = do
-    av <- J.getArrValues a
+             V.Value
+          -> Vm.VirtualMachine (Debugger (ErrorT String (InputT m))) String
+showValue (V.CharValue c)   = return [c]
+showValue (V.LongValue c)   = return $ show c
+showValue (V.StringValue s) = show <$> SR.stringValue s
+showValue (V.ArrayValue a)  = do
+    av <- AR.getValues a
     vs <- mapM showValue av
     return $ "[" ++ intercalate ", " vs ++ "]"
 showValue v                 = return $ show v
 
 liftInpTtoVM = lift . lift . lift
 
-commandLoop :: J.VirtualMachine (Debugger (ErrorT String (InputT IO))) Bool
+commandLoop :: Vm.VirtualMachine (Debugger (ErrorT String (InputT IO))) Bool
 commandLoop = do
     minput <- liftInpTtoVM $ getInputLine "(jdb) "
     case minput of
@@ -369,11 +381,11 @@ commandLoop = do
             case parseCommand line of
                 QuitCommand -> return False
                 VersionCommand -> do
-                    p <- J.version
+                    p <- Vm.version
                     liftIO $ putStrLn $ show p
                     commandLoop
                 ContinueCommand ->
-                    J.resumeVm >> return True
+                    Vm.resumeVm >> return True
                 BreakpointLineCommand name line -> do
                     lift . addBreakpoint $ BreakpointLineCommand name line
                     commandLoop
@@ -395,13 +407,13 @@ commandLoop = do
                     commandLoop
                 NextCommand -> do
                     ct <- lift getCurrentThread
-                    J.enable $ J.addCountFilter
+                    ER.enable $ ER.addCountFilter
                                     1
-                                    (J.createStepRequest
+                                    (ER.createStepRequest
                                         ct
                                         J.StepLine
                                         J.StepOver)
-                    J.resumeVm
+                    Vm.resumeVm
                     return True
                     `catchError` (\e -> do
                                     liftIO . putStrLn $ show e
