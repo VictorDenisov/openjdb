@@ -385,7 +385,7 @@ commandLoop = do
                     liftIO $ putStrLn $ show p
                     commandLoop
                 ContinueCommand ->
-                    Vm.resumeVm >> return True
+                    Vm.resume >> return True
                 BreakpointLineCommand name line -> do
                     lift . addBreakpoint $ BreakpointLineCommand name line
                     commandLoop
@@ -413,7 +413,7 @@ commandLoop = do
                                         ct
                                         J.StepLine
                                         J.StepOver)
-                    Vm.resumeVm
+                    Vm.resume
                     return True
                     `catchError` (\e -> do
                                     liftIO . putStrLn $ show e
