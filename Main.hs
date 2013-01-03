@@ -338,7 +338,7 @@ calcSyntaxTree (JS.ExpName (JS.Name ((JS.Ident name):[]))) = do
     vars <- M.variables (L.method loc)
     args <- M.arguments (L.method loc)
     let ref = L.declaringType loc
-    fields <- RT.allFields ref
+    fields <- RT.fields ref
     allVars <- filterM (((name ==) `liftM`) . J.name) (vars ++ args)
     allFields <- filterM (((name ==) `liftM`) . J.name) fields
     when (null allVars && null allFields)
