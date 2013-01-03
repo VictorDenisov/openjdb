@@ -1,4 +1,7 @@
 public class Main {
+
+    public static int field1 = 10;
+
     public static void main(String[] args) {
         System.out.println("Hello all");
         System.out.println("Arguments are");

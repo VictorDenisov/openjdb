@@ -337,9 +337,17 @@ calcSyntaxTree (JS.ExpName (JS.Name ((JS.Ident name):[]))) = do
     loc <- J.location fr
     vars <- M.variables (L.method loc)
     args <- M.arguments (L.method loc)
+    let ref = L.declaringType loc
+    fields <- RT.allFields ref
     allVars <- filterM (((name ==) `liftM`) . J.name) (vars ++ args)
-    when (null allVars) $ throwError $ "Unknown variable name: " ++ name
-    SF.getValue fr $ head allVars
+    allFields <- filterM (((name ==) `liftM`) . J.name) fields
+    when (null allVars && null allFields)
+                    $ throwError $ "Unknown variable name: " ++ name
+    when (length allVars + length allFields > 1)
+                    $ throwError $ "Ambiguous name: " ++ name
+    if null allVars
+        then RT.getValue ref $ head allFields
+        else SF.getValue fr $ head allVars
 calcSyntaxTree (JS.ArrayAccess (JS.ArrayIndex arrExp indExp)) = do
     arr <- calcSyntaxTree arrExp
     ind <- calcSyntaxTree indExp
@@ -355,6 +363,7 @@ showValue :: MonadException m =>
           -> Vm.VirtualMachine (Debugger (ErrorT String (InputT m))) String
 showValue (V.CharValue c)   = return [c]
 showValue (V.LongValue c)   = return $ show c
+showValue (V.IntValue c)    = return $ show c
 showValue (V.StringValue s) = show <$> SR.stringValue s
 showValue (V.ArrayValue a)  = do
     av <- AR.getValues a
