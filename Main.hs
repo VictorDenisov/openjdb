@@ -112,6 +112,7 @@ cmdList = [ "quit"
           , "continue"
           , "print"
           , "list"
+          , "step"
           , "backtrace"]
 
 trim = dropWhileEnd isSpace . (dropWhile isSpace)
@@ -416,7 +417,16 @@ commandLoop = do
                     ct <- lift getCurrentThread
                     frames <- TR.allFrames ct
                     res <- mapM showStackFrame frames
-                    liftIO $ putStrLn $ intercalate "\n" res
+                    let l = (length res)
+                    let width = length $ show l
+                    let numberedLines = zipWith
+                                            (++)
+                                            (map
+                                                (("#" ++) . alignNum width)
+                                                [0..length res - 1]
+                                            )
+                                            res
+                    liftIO $ putStrLn $ intercalate "\n" numberedLines
                     commandLoop
                 BreakpointLineCommand name line -> do
                     lift . addBreakpoint $ BreakpointLineCommand name line
@@ -450,6 +460,19 @@ commandLoop = do
                     `catchError` (\e -> do
                                     liftIO . putStrLn $ show e
                                     commandLoop)
+                StepCommand -> do
+                    ct <- lift getCurrentThread
+                    ER.enable $ ER.addCountFilter
+                                    1
+                                    (ER.createStepRequest
+                                        ct
+                                        J.StepLine
+                                        J.StepInto)
+                    Vm.resume
+                    return True
+                    `catchError` (\e -> do
+                                    liftIO . putStrLn $ show e
+                                    commandLoop)
                 ErroneousCommand error -> do
                     liftIO $ putStrLn
                         $ "Error during parsing the command: " ++ error
@@ -463,6 +486,7 @@ data Command = VersionCommand
              | QuitCommand
              | ListCommand
              | NextCommand
+             | StepCommand
              | PrintCommand String
              | ErroneousCommand String
                deriving Show
@@ -481,12 +505,18 @@ commandParser = parseVersion
             <|> try parseBacktrace
             <|> parseList
             <|> parseNext
+            <|> parseStep
             <|> parsePrint
 
 parseNext :: CharParser st Command
 parseNext = do
     (try $ string "next") <|> string "n"
     return NextCommand
+
+parseStep :: CharParser st Command
+parseStep = do
+    (try $ string "step") <|> string "s"
+    return StepCommand
 
 parseList :: CharParser st Command
 parseList = string "list" >> return ListCommand
