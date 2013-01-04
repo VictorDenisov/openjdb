@@ -3,3 +3,41 @@ Jarfind library is not published on hackage yet.
 
 jarfind
 jdi
+
+Compilation.
+
+You need cabal for building the project.
+
+Install necessary unpublished libraries:
+
+- Enter jarfind directory.
+
+- run
+
+# cabal confgiure
+# cabal build
+# cabal install
+
+- repeat the same steps for jdi library.
+
+In openjdb directory run:
+
+# cabal configure
+# cabal build
+
+Now you have openjdb executable binary in dist/build/openjdb.
+
+If you want to try openjdb with debugging any real application do the following:
+
+Start ./run_sample.sh.
+
+It starts a sample java application.
+
+In another terminal start ./run_openjdb.sh. It will connect to the previously
+started java application.
+
+openjdb is designed to look very similar to gdb GNU debugger and not to jdb
+from java packages.
+
+Refer to run_openjdb.sh shell script for command line arguments necessary to
+run openjdb.
