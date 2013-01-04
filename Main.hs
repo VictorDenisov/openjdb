@@ -105,7 +105,14 @@ data CommandElement m st = CommandName String
                          | MethodName  String
                          | LineNum     Int
 
-cmdList = ["quit", "version", "breakpoint", "next", "continue", "print", "list"]
+cmdList = [ "quit"
+          , "version"
+          , "breakpoint"
+          , "next"
+          , "continue"
+          , "print"
+          , "list"
+          , "backtrace"]
 
 trim = dropWhileEnd isSpace . (dropWhile isSpace)
 
@@ -371,6 +378,16 @@ showValue (V.ArrayValue a)  = do
     return $ "[" ++ intercalate ", " vs ++ "]"
 showValue v                 = return $ show v
 
+showStackFrame :: (Error e, MonadIO m, MonadError e m)
+          => SF.StackFrame -> Vm.VirtualMachine m String
+showStackFrame sf = do
+    loc <- J.location sf
+    let method = L.method loc
+    srcName <- J.sourceName loc
+    let lineNum = L.lineNumber loc
+    methodName <- J.name method
+    return $ methodName ++ " at " ++ srcName ++ ": " ++ show lineNum
+
 liftInpTtoVM = lift . lift . lift
 
 commandLoop :: Vm.VirtualMachine (Debugger (ErrorT String (InputT IO))) Bool
@@ -395,6 +412,12 @@ commandLoop = do
                     commandLoop
                 ContinueCommand ->
                     Vm.resume >> return True
+                BacktraceCommand -> do
+                    ct <- lift getCurrentThread
+                    frames <- TR.allFrames ct
+                    res <- mapM showStackFrame frames
+                    liftIO $ putStrLn $ intercalate "\n" res
+                    commandLoop
                 BreakpointLineCommand name line -> do
                     lift . addBreakpoint $ BreakpointLineCommand name line
                     commandLoop
@@ -436,6 +459,7 @@ data Command = VersionCommand
              | ContinueCommand
              | BreakpointLineCommand String Int -- class line
              | BreakpointMethodCommand String String -- class method
+             | BacktraceCommand
              | QuitCommand
              | ListCommand
              | NextCommand
@@ -453,16 +477,24 @@ commandParser :: CharParser st Command
 commandParser = parseVersion
             <|> parseContinue
             <|> parseQuit
-            <|> parseBreakpointCommand
+            <|> try parseBreakpointCommand
+            <|> try parseBacktrace
             <|> parseList
             <|> parseNext
             <|> parsePrint
 
 parseNext :: CharParser st Command
-parseNext = string "next" >> return NextCommand
+parseNext = do
+    (try $ string "next") <|> string "n"
+    return NextCommand
 
 parseList :: CharParser st Command
 parseList = string "list" >> return ListCommand
+
+parseBacktrace :: CharParser st Command
+parseBacktrace = do
+    try (string "backtrace") <|> (string "bt")
+    return BacktraceCommand
 
 parseBreakpointCommand :: CharParser st Command
 parseBreakpointCommand = do
