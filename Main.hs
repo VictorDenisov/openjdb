@@ -313,7 +313,7 @@ setupBreakpoint refType (BreakpointLineCommand nm line) = do
                 $ "there is no executable source code for line: " ++ show line
         else void $ ER.enable $ ER.createBreakpointRequest (head matchingLines)
 setupBreakpoint refType (BreakpointMethodCommand nm method) = do
-    methods <- RT.allMethods refType
+    methods <- RT.methods refType
     matchingMethods <- filterM ((liftM (method ==)) . J.name) methods
     if null matchingMethods
         then liftIO . putStrLn $ "there is no method with name: " ++ method
