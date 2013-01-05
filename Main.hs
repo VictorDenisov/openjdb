@@ -418,13 +418,12 @@ commandLoop = do
                     frames <- TR.allFrames ct
                     res <- mapM showStackFrame frames
                     let l = (length res)
+                    let lineNumbers = (map (("#" ++) . alignNum width)
+                                           [0..l - 1])
                     let width = length $ show l
                     let numberedLines = zipWith
                                             (++)
-                                            (map
-                                                (("#" ++) . alignNum width)
-                                                [0..length res - 1]
-                                            )
+                                            lineNumbers
                                             res
                     liftIO $ putStrLn $ intercalate "\n" numberedLines
                     commandLoop
