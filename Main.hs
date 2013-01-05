@@ -39,6 +39,7 @@ import qualified Language.Java.Jdi.StringReference as SR
 import qualified Language.Java.Jdi.Value as V
 import qualified Language.Java.Jdi.StackFrame as SF
 import qualified Language.Java.Jdi.ThreadReference as TR
+import qualified Language.Java.Jdi.ThreadGroupReference as TG
 import qualified Language.Java.Jdi.Method as M
 import qualified Language.Java.Jdi.Location as L
 
@@ -113,6 +114,7 @@ cmdList = [ "quit"
           , "print"
           , "list"
           , "step"
+          , "threads"
           , "backtrace"]
 
 trim = dropWhileEnd isSpace . (dropWhile isSpace)
@@ -389,6 +391,24 @@ showStackFrame sf = do
     methodName <- J.name method
     return $ methodName ++ " at " ++ srcName ++ ": " ++ show lineNum
 
+printThreadTree :: (Error e, MonadIO m, MonadError e m)
+             => Vm.VirtualMachine m ()
+printThreadTree = do
+    tgs <- Vm.topLevelThreadGroups
+    mapM_ (printThreadGroup 0) tgs
+
+printThreadGroup depth tg = do
+    let is = "   "
+    let indent = concat $ replicate depth is
+    tgName <- J.name tg
+    liftIO $ putStrLn $ indent ++ "Thread group: " ++ tgName
+
+    liftIO $ putStrLn $ indent ++ is ++ "Threads: "
+    ts <- mapM J.name =<< (TG.threads tg)
+    liftIO $ putStrLn $ intercalate "\n" $ map ((indent ++ is ++ is) ++ ) ts
+
+    mapM_ (printThreadGroup $ depth + 1) =<< TG.threadGroups tg
+
 liftInpTtoVM = lift . lift . lift
 
 commandLoop :: Vm.VirtualMachine (Debugger (ErrorT String (InputT IO))) Bool
@@ -418,9 +438,9 @@ commandLoop = do
                     frames <- TR.allFrames ct
                     res <- mapM showStackFrame frames
                     let l = (length res)
+                    let width = length $ show l
                     let lineNumbers = (map (("#" ++) . alignNum width)
                                            [0..l - 1])
-                    let width = length $ show l
                     let numberedLines = zipWith
                                             (++)
                                             lineNumbers
@@ -435,6 +455,9 @@ commandLoop = do
                     commandLoop
                 ListCommand -> do
                     printSourceLines
+                    commandLoop
+                ThreadsCommand -> do
+                    printThreadTree
                     commandLoop
                 PrintCommand arg -> do
                     case JP.parser JP.exp arg of
@@ -486,6 +509,7 @@ data Command = VersionCommand
              | ListCommand
              | NextCommand
              | StepCommand
+             | ThreadsCommand
              | PrintCommand String
              | ErroneousCommand String
                deriving Show
@@ -505,7 +529,11 @@ commandParser = parseVersion
             <|> parseList
             <|> parseNext
             <|> parseStep
+            <|> parseThreads
             <|> parsePrint
+
+parseThreads :: CharParser st Command
+parseThreads = string "threads" >> return ThreadsCommand
 
 parseNext :: CharParser st Command
 parseNext = do
