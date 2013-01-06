@@ -1,8 +1,18 @@
-public class Main {
+public class Main implements Runnable {
 
     public static int field1 = 10;
 
+    private String[] args;
+
+    public Main(String[] args) {
+        this.args = args;
+    }
+
     public static void main(String[] args) {
+        new Thread(new Main(args)).start();
+    }
+
+    public void run() {
         System.out.println("Hello all");
         System.out.println("Arguments are");
         int v = -5;
