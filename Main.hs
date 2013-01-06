@@ -397,15 +397,29 @@ printThreadTree = do
     tgs <- Vm.topLevelThreadGroups
     mapM_ (printThreadGroup 0) tgs
 
+formatThread :: (Error e, MonadIO m, MonadError e m)
+             => TR.ThreadReference -> Vm.VirtualMachine m String
+formatThread tr = do
+    threadName <- J.name tr
+    threadStatus <- TR.status tr
+    suspended <- TR.isSuspended tr
+    return $ threadName
+             ++ " " ++
+             show threadStatus
+             ++ " " ++
+             if suspended
+                then "suspended"
+                else "resumed"
+
 printThreadGroup depth tg = do
     let is = "   "
     let indent = concat $ replicate depth is
     tgName <- J.name tg
-    liftIO $ putStrLn $ indent ++ "Thread group: " ++ tgName
+    liftIO $ putStrLn ""
+    liftIO $ putStrLn $ indent ++ "Group: " ++ tgName
 
-    liftIO $ putStrLn $ indent ++ is ++ "Threads: "
-    ts <- mapM J.name =<< (TG.threads tg)
-    liftIO $ putStrLn $ intercalate "\n" $ map ((indent ++ is ++ is) ++ ) ts
+    ts <- mapM formatThread =<< (TG.threads tg)
+    liftIO $ putStrLn $ intercalate "\n" $ map ((indent ++ is) ++) ts
 
     mapM_ (printThreadGroup $ depth + 1) =<< TG.threadGroups tg
 
