@@ -39,6 +39,7 @@ import qualified Language.Java.Jdi.StringReference as SR
 import qualified Language.Java.Jdi.Value as V
 import qualified Language.Java.Jdi.StackFrame as SF
 import qualified Language.Java.Jdi.ThreadReference as TR
+import qualified Language.Java.Jdi.ObjectReference as OR
 import qualified Language.Java.Jdi.ThreadGroupReference as TG
 import qualified Language.Java.Jdi.Method as M
 import qualified Language.Java.Jdi.Location as L
@@ -224,7 +225,6 @@ linesFromSourceName sourceName = do
 printSourceLines :: Vm.VirtualMachine (Debugger (ErrorT String (InputT IO))) ()
 printSourceLines = do
     l <- lift getCurrentLocation
-    liftIO $ putStrLn $ show l
     sn <- J.sourceName l
     let ln = L.lineNumber l
     dat <- lift $ linesFromSourceName sn
@@ -277,29 +277,23 @@ eventLoop = do
     let event = head $ ES.events es
     continue <- case E.eventKind event of
         E.ClassPrepare -> do
-            liftIO $ putStrLn "Received ClassPrepare request"
-            liftIO $ putStrLn $ show $ E.referenceType event
             setupBreakpoints $ E.referenceType event
             J.resume es
             return True
         E.Breakpoint -> do
             lift . setCurrentThread =<< E.thread event
-            liftIO $ putStrLn $ show event
             l <- J.location event
             lift $ setCurrentLocation l
             printSourceLine
             commandLoop
         E.SingleStep -> do
-            liftIO $ putStrLn $ show event
             l <- J.location event
             lift $ setCurrentLocation l
             printSourceLine
             commandLoop
         E.VmDeath -> do
-            liftIO $ putStrLn $ show event
             return False
         otherwise -> do
-            liftIO $ putStrLn $ show event
             commandLoop
     if continue
         then eventLoop
@@ -349,25 +343,41 @@ getCurrentThread = do
         Just v -> return v
         Nothing -> throwError (strMsg "No current thread is available")
 
-calcSyntaxTree :: MonadException m =>
-    JS.Exp -> Vm.VirtualMachine (Debugger (ErrorT String (InputT m))) V.Value
+calcSyntaxTree :: MonadException m
+               => JS.Exp
+               -> Vm.VirtualMachine (Debugger (ErrorT String (InputT m))) V.Value
 calcSyntaxTree (JS.ExpName (JS.Name ((JS.Ident name):[]))) = do
     ct <- lift getCurrentThread
-    fr <- head <$> TR.allFrames ct
+    allFrames <- TR.allFrames ct
+    let fr = head allFrames
     loc <- J.location fr
-    vars <- M.variables (L.method loc)
-    args <- M.arguments (L.method loc)
+    let curMethod = L.method loc
+    vars <- M.variables curMethod
+    args <- M.arguments curMethod
     let ref = L.declaringType loc
     fields <- RT.fields ref
     let allVars = filter ((name ==) . J.name) (vars ++ args)
     let allFields = filter ((name ==) . J.name) fields
+    let staticFields = filter J.isStatic allFields
+    let instanceFields =
+            if not $ J.isStatic curMethod
+                then filter (not . J.isStatic) allFields
+                else []
     when (null allVars && null allFields)
-                    $ throwError $ "Unknown variable name: " ++ name
-    when (length allVars + length allFields > 1)
-                    $ throwError $ "Ambiguous name: " ++ name
-    if null allVars
-        then RT.getValue ref $ head allFields
-        else SF.getValue fr $ head allVars
+                    $ throwError $ "Scope doesn't have variable: " ++ name
+    if not $ null allVars
+        then case allVars of
+                [] -> throwError $ "Scope doesn't have variable: " ++ name
+                (f:_) -> SF.getValue fr f
+        else if null instanceFields
+                then case staticFields of
+                        [] -> throwError $ "Scope doesn't have variable: " ++ name
+                        (f:_) -> RT.getValue ref f
+                else do
+                    thisObject <- SF.thisObject fr
+                    case instanceFields of
+                        [] -> throwError $ "Scope doesn't have variable: " ++ name
+                        (f:_) -> OR.getValue thisObject f
 calcSyntaxTree (JS.ArrayAccess (JS.ArrayIndex arrExp indExp)) = do
     arr <- calcSyntaxTree arrExp
     ind <- calcSyntaxTree indExp
