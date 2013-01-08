@@ -1,10 +1,14 @@
+Openjdb
+=======
+
 Due to heavy development of jdi library it's added to openjdb as a submodule.
 Jarfind library is not published on hackage yet.
 
 jarfind
 jdi
 
-Compilation.
+COMPILATION
+-----------
 
 You need cabal for building the project.
 
@@ -41,3 +45,26 @@ from java packages.
 
 Refer to run_openjdb.sh shell script for command line arguments necessary to
 run openjdb.
+
+RELEASE NOTES
+-------------
+
+Features and limitations of the current release.
+
+Features:
+
+  - read only access to virtual machine.
+  - print stack trace.
+  - print list of running threads.
+  - print values of variables.
+  - breakpoint for method.
+  - breakpoint for lines.
+  - step execution.
+  - next execution.
+
+Limitations:
+
+  - can not print values of expressions bigger than one variable.
+  - all threads are suspendded on breakpoint or step request.
+  - can not move up and down alongside stack trace frames.
+  - can not operate with threads.
