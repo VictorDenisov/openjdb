@@ -239,8 +239,13 @@ addBreakpoint c = do
     dc <- get
     put $ dc {breakpoints = c : breakpoints dc}
 
-listBreakpoints :: Monad m => Debugger m [Command]
-listBreakpoints = breakpoints `liftM` get
+setPendingBreakpoints :: Monad m => [Command] -> Debugger m ()
+setPendingBreakpoints bs = do
+    dc <- get
+    put $ dc {breakpoints = bs}
+
+listPendingBreakpoints :: Monad m => Debugger m [Command]
+listPendingBreakpoints = breakpoints `liftM` get
 
 setCurrentThread :: Monad m => TR.ThreadReference -> Debugger m ()
 setCurrentThread tr = do
@@ -309,8 +314,13 @@ setupBreakpoints :: RT.ReferenceType
                  -> Vm.VirtualMachine (Debugger (ErrorT String (InputT IO))) ()
 setupBreakpoints refType = do
     let refName = J.name refType
-    bpList <- filter ((refName ==) . className) <$> lift listBreakpoints
+    allBreakpoints <- lift listPendingBreakpoints
+    let bpList = filter ((refName ==) . className) allBreakpoints
+    let reminder = filter ((refName /=) . className) allBreakpoints
+    when (not $ null bpList) $ liftIO $ putStrLn
+                            $ "Setting up breakpoints for class " ++ refName
     forM_ bpList (setupBreakpoint refType)
+    lift $ setPendingBreakpoints reminder
 
 setupBreakpoint :: RT.ReferenceType
                 -> Command
@@ -458,11 +468,23 @@ commandLoop = do
                                             res
                     liftIO $ putStrLn $ intercalate "\n" numberedLines
                     commandLoop
-                BreakpointLineCommand name line -> do
+                cmd@(BreakpointLineCommand name line) -> do
                     lift . addBreakpoint $ BreakpointLineCommand name line
+                    ac <- filter ((name ==) . J.name) <$> Vm.allClasses
+                    when (null ac) $ liftIO $ putStrLn
+                              $ "No classes with name "
+                                ++ name
+                                ++ " are loaded. Breakpoint setup is postponed."
+                    mapM setupBreakpoints ac
                     commandLoop
-                BreakpointMethodCommand name method -> do
+                cmd@(BreakpointMethodCommand name method) -> do
                     lift . addBreakpoint $ BreakpointMethodCommand name method
+                    ac <- filter ((name ==) . J.name) <$> Vm.allClasses
+                    when (null ac) $ liftIO $ putStrLn
+                              $ "No classes with name "
+                                ++ name
+                                ++ " are loaded. Breakpoint setup is postponed."
+                    mapM setupBreakpoints ac
                     commandLoop
                 ListCommand -> do
                     printSourceLines
