@@ -543,18 +543,18 @@ commandLoop = do
                         $ "Error during parsing the command: " ++ error
                     commandLoop
 
-data Command = VersionCommand
-             | ContinueCommand
+data Command = BacktraceCommand
              | BreakpointLineCommand String Int -- class line
              | BreakpointMethodCommand String String -- class method
-             | BacktraceCommand
-             | QuitCommand
+             | ContinueCommand
+             | ErroneousCommand String
              | ListCommand
              | NextCommand
+             | PrintCommand String
+             | QuitCommand
              | StepCommand
              | ThreadsCommand
-             | PrintCommand String
-             | ErroneousCommand String
+             | VersionCommand
                deriving Show
 
 parseCommand :: String -> Command
