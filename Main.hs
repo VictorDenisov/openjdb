@@ -110,6 +110,7 @@ data CommandElement m st = CommandName String
 cmdList = [ "backtrace"
           , "breakpoint"
           , "continue"
+          , "down"
           , "list"
           , "next"
           , "print"
@@ -445,6 +446,14 @@ printThreadGroup depth tg = do
 
     mapM_ (printThreadGroup $ depth + 1) =<< TG.threadGroups tg
 
+printCurrentFrame :: Vm.VirtualMachine (Debugger (ErrorT String (InputT IO))) ()
+printCurrentFrame = do
+    tr <- lift getCurrentThread
+    cf <- lift getCurrentFrame
+    fr <- TR.frame tr cf
+    frameString <- (showStackFrame fr)
+    liftIO $ putStrLn $ "#" ++ (show cf) ++ " " ++ frameString
+
 liftInpTtoVM = lift . lift . lift
 
 commandLoop :: Vm.VirtualMachine (Debugger (ErrorT String (InputT IO))) Bool
@@ -512,9 +521,15 @@ commandLoop = do
                         then liftIO $ putStrLn "Initial frame selected; you cannot go up."
                         else do
                             lift $ setCurrentFrame (cf + 1)
-                            fr <- TR.frame tr (cf + 1)
-                            frameString <- (showStackFrame fr)
-                            liftIO $ putStrLn $ "#" ++ (show $ cf + 1) ++ " " ++ frameString
+                            printCurrentFrame
+                    commandLoop
+                DownCommand -> do
+                    cf <- lift getCurrentFrame
+                    if cf == 0
+                        then liftIO $ putStrLn "Bottom frame selected; you cannot go down."
+                        else do
+                            lift $ setCurrentFrame (cf - 1)
+                            printCurrentFrame
                     commandLoop
                 ThreadsCommand -> do
                     printThreadTree
@@ -564,6 +579,7 @@ data Command = BacktraceCommand
              | BreakpointLineCommand String Int -- class line
              | BreakpointMethodCommand String String -- class method
              | ContinueCommand
+             | DownCommand
              | ErroneousCommand String
              | ListCommand
              | NextCommand
@@ -592,10 +608,14 @@ commandParser = parseVersion
             <|> parseStep
             <|> parseThreads
             <|> parseUp
+            <|> parseDown
             <|> parsePrint
 
 parseUp :: CharParser st Command
 parseUp = string "up" >> return UpCommand
+
+parseDown :: CharParser st Command
+parseDown = string "down" >> return DownCommand
 
 parseThreads :: CharParser st Command
 parseThreads = string "threads" >> return ThreadsCommand
