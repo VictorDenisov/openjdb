@@ -111,6 +111,7 @@ cmdList = [ "backtrace"
           , "breakpoint"
           , "continue"
           , "down"
+          , "frame"
           , "list"
           , "next"
           , "print"
@@ -535,6 +536,9 @@ commandLoop = do
                             lift $ setCurrentFrameNumber (cf - 1)
                             printCurrentFrame
                     commandLoop
+                FrameCommand -> do
+                    printCurrentFrame
+                    commandLoop
                 ThreadsCommand -> do
                     printThreadTree
                     commandLoop
@@ -585,6 +589,7 @@ data Command = BacktraceCommand
              | ContinueCommand
              | DownCommand
              | ErroneousCommand String
+             | FrameCommand
              | ListCommand
              | NextCommand
              | PrintCommand String
@@ -613,6 +618,7 @@ commandParser = parseVersion
             <|> parseThreads
             <|> parseUp
             <|> parseDown
+            <|> parseFrame
             <|> parsePrint
 
 parseUp :: CharParser st Command
@@ -620,6 +626,9 @@ parseUp = string "up" >> return UpCommand
 
 parseDown :: CharParser st Command
 parseDown = string "down" >> return DownCommand
+
+parseFrame :: CharParser st Command
+parseFrame = string "frame" >> return FrameCommand
 
 parseThreads :: CharParser st Command
 parseThreads = string "threads" >> return ThreadsCommand
