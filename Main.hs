@@ -116,6 +116,7 @@ cmdList = [ "backtrace"
           , "quit"
           , "step"
           , "threads"
+          , "up"
           , "version"
           ]
 
@@ -198,6 +199,9 @@ getCurrentLocation = do
     cf <- lift $ currentFrame `liftM` get
     fr <- TR.frame tr cf
     J.location fr
+
+getCurrentFrame :: Monad m => Debugger m Int
+getCurrentFrame = currentFrame `liftM` get
 
 setCurrentFrame :: Monad m => Int -> Debugger m ()
 setCurrentFrame f = do
@@ -500,6 +504,18 @@ commandLoop = do
                 ListCommand -> do
                     printSourceLines
                     commandLoop
+                UpCommand -> do
+                    tr <- lift getCurrentThread
+                    frCnt <- TR.frameCount tr
+                    cf <- lift getCurrentFrame
+                    if cf >= (frCnt - 1)
+                        then liftIO $ putStrLn "Initial frame selected; you cannot go up."
+                        else do
+                            lift $ setCurrentFrame (cf + 1)
+                            fr <- TR.frame tr (cf + 1)
+                            frameString <- (showStackFrame fr)
+                            liftIO $ putStrLn $ "#" ++ (show $ cf + 1) ++ " " ++ frameString
+                    commandLoop
                 ThreadsCommand -> do
                     printThreadTree
                     commandLoop
@@ -555,6 +571,7 @@ data Command = BacktraceCommand
              | QuitCommand
              | StepCommand
              | ThreadsCommand
+             | UpCommand
              | VersionCommand
                deriving Show
 
@@ -574,7 +591,11 @@ commandParser = parseVersion
             <|> parseNext
             <|> parseStep
             <|> parseThreads
+            <|> parseUp
             <|> parsePrint
+
+parseUp :: CharParser st Command
+parseUp = string "up" >> return UpCommand
 
 parseThreads :: CharParser st Command
 parseThreads = string "threads" >> return ThreadsCommand
