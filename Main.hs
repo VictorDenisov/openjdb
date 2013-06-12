@@ -179,7 +179,7 @@ main = do
                                (getHost opts)
                                (getPort opts)
                                (initialSetup >> eventLoop))
-                               (DebugConfig [] Nothing sourceFiles Nothing)
+                               (DebugConfig [] Nothing sourceFiles 0)
     case res of
           Left e -> putStrLn $ "Error during execution: " ++ e
           Right v -> putStrLn $ "Success"
@@ -188,20 +188,21 @@ data DebugConfig = DebugConfig
     { breakpoints :: [Command] -- breakpoints whose classes are not loaded yet.
     , currentThread :: Maybe TR.ThreadReference
     , sourceFiles :: [String]
-    , currentLocation :: Maybe L.Location
+    , currentFrame :: Int
     }
 
-getCurrentLocation :: (Error e, MonadError e m) => Debugger m L.Location
+getCurrentLocation :: (MonadIO m, Error e, MonadError e m)
+                   => Vm.VirtualMachine (Debugger m) L.Location
 getCurrentLocation = do
-    l <- currentLocation `liftM` get
-    case l of
-        Just loc -> return loc
-        Nothing  -> throwError $ strMsg "Current location is unavailable"
+    tr <- lift getCurrentThread
+    cf <- lift $ currentFrame `liftM` get
+    fr <- TR.frame tr cf
+    J.location fr
 
-setCurrentLocation :: Monad m => L.Location -> Debugger m ()
-setCurrentLocation l = do
+setCurrentFrame :: Monad m => Int -> Debugger m ()
+setCurrentFrame f = do
     dc <- get
-    put $ dc {currentLocation = Just l}
+    put $ dc {currentFrame = f}
 
 type Debugger = StateT DebugConfig
 
@@ -225,7 +226,7 @@ linesFromSourceName sourceName = do
 
 printSourceLines :: Vm.VirtualMachine (Debugger (ErrorT String (InputT IO))) ()
 printSourceLines = do
-    l <- lift getCurrentLocation
+    l <- getCurrentLocation
     sn <- J.sourceName l
     let ln = L.lineNumber l
     dat <- lift $ linesFromSourceName sn
@@ -263,7 +264,7 @@ getSourceFiles = sourceFiles `liftM` get
 
 printSourceLine :: Vm.VirtualMachine (Debugger (ErrorT String (InputT IO))) ()
 printSourceLine = do
-    l <- lift getCurrentLocation
+    l <- getCurrentLocation
     let ln = L.lineNumber l
     sn <- J.sourceName l
     dat <- lift $ linesFromSourceName sn
@@ -283,13 +284,12 @@ eventLoop = do
             return True
         E.Breakpoint -> do
             lift . setCurrentThread =<< E.thread event
-            l <- J.location event
-            lift $ setCurrentLocation l
+            lift $ setCurrentFrame 0
             printSourceLine
             commandLoop
         E.SingleStep -> do
-            l <- J.location event
-            lift $ setCurrentLocation l
+            lift . setCurrentThread =<< E.thread event
+            lift $ setCurrentFrame 0
             printSourceLine
             commandLoop
         E.VmDeath -> do
