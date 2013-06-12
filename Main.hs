@@ -196,10 +196,15 @@ data DebugConfig = DebugConfig
 getCurrentLocation :: (MonadIO m, Error e, MonadError e m)
                    => Vm.VirtualMachine (Debugger m) L.Location
 getCurrentLocation = do
+    fr <- getCurrentFrame
+    J.location fr
+
+getCurrentFrame :: (MonadIO m, Error e, MonadError e m)
+                => Vm.VirtualMachine (Debugger m) SF.StackFrame
+getCurrentFrame = do
     tr <- lift getCurrentThread
     cf <- lift $ currentFrameNumber `liftM` get
-    fr <- TR.frame tr cf
-    J.location fr
+    TR.frame tr cf
 
 getCurrentFrameNumber :: Monad m => Debugger m Int
 getCurrentFrameNumber = currentFrameNumber `liftM` get
@@ -448,9 +453,8 @@ printThreadGroup depth tg = do
 
 printCurrentFrame :: Vm.VirtualMachine (Debugger (ErrorT String (InputT IO))) ()
 printCurrentFrame = do
-    tr <- lift getCurrentThread
     cf <- lift getCurrentFrameNumber
-    fr <- TR.frame tr cf
+    fr <- getCurrentFrame
     frameString <- (showStackFrame fr)
     liftIO $ putStrLn $ "#" ++ (show cf) ++ " " ++ frameString
 
