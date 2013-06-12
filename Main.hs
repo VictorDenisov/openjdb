@@ -190,24 +190,24 @@ data DebugConfig = DebugConfig
     { breakpoints :: [Command] -- breakpoints whose classes are not loaded yet.
     , currentThread :: Maybe TR.ThreadReference
     , sourceFiles :: [String]
-    , currentFrame :: Int
+    , currentFrameNumber :: Int
     }
 
 getCurrentLocation :: (MonadIO m, Error e, MonadError e m)
                    => Vm.VirtualMachine (Debugger m) L.Location
 getCurrentLocation = do
     tr <- lift getCurrentThread
-    cf <- lift $ currentFrame `liftM` get
+    cf <- lift $ currentFrameNumber `liftM` get
     fr <- TR.frame tr cf
     J.location fr
 
-getCurrentFrame :: Monad m => Debugger m Int
-getCurrentFrame = currentFrame `liftM` get
+getCurrentFrameNumber :: Monad m => Debugger m Int
+getCurrentFrameNumber = currentFrameNumber `liftM` get
 
-setCurrentFrame :: Monad m => Int -> Debugger m ()
-setCurrentFrame f = do
+setCurrentFrameNumber :: Monad m => Int -> Debugger m ()
+setCurrentFrameNumber f = do
     dc <- get
-    put $ dc {currentFrame = f}
+    put $ dc {currentFrameNumber = f}
 
 type Debugger = StateT DebugConfig
 
@@ -289,12 +289,12 @@ eventLoop = do
             return True
         E.Breakpoint -> do
             lift . setCurrentThread =<< E.thread event
-            lift $ setCurrentFrame 0
+            lift $ setCurrentFrameNumber 0
             printSourceLine
             commandLoop
         E.SingleStep -> do
             lift . setCurrentThread =<< E.thread event
-            lift $ setCurrentFrame 0
+            lift $ setCurrentFrameNumber 0
             printSourceLine
             commandLoop
         E.VmDeath -> do
@@ -449,7 +449,7 @@ printThreadGroup depth tg = do
 printCurrentFrame :: Vm.VirtualMachine (Debugger (ErrorT String (InputT IO))) ()
 printCurrentFrame = do
     tr <- lift getCurrentThread
-    cf <- lift getCurrentFrame
+    cf <- lift getCurrentFrameNumber
     fr <- TR.frame tr cf
     frameString <- (showStackFrame fr)
     liftIO $ putStrLn $ "#" ++ (show cf) ++ " " ++ frameString
@@ -516,19 +516,19 @@ commandLoop = do
                 UpCommand -> do
                     tr <- lift getCurrentThread
                     frCnt <- TR.frameCount tr
-                    cf <- lift getCurrentFrame
+                    cf <- lift getCurrentFrameNumber
                     if cf >= (frCnt - 1)
                         then liftIO $ putStrLn "Initial frame selected; you cannot go up."
                         else do
-                            lift $ setCurrentFrame (cf + 1)
+                            lift $ setCurrentFrameNumber (cf + 1)
                             printCurrentFrame
                     commandLoop
                 DownCommand -> do
-                    cf <- lift getCurrentFrame
+                    cf <- lift getCurrentFrameNumber
                     if cf == 0
                         then liftIO $ putStrLn "Bottom frame selected; you cannot go down."
                         else do
-                            lift $ setCurrentFrame (cf - 1)
+                            lift $ setCurrentFrameNumber (cf - 1)
                             printCurrentFrame
                     commandLoop
                 ThreadsCommand -> do
