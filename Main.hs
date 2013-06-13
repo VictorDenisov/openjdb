@@ -681,7 +681,9 @@ parseVersion :: CharParser st Command
 parseVersion = string "version" >> return VersionCommand
 
 parseContinue :: CharParser st Command
-parseContinue = string "continue" >> return ContinueCommand
+parseContinue = do
+    try (string "continue") <|> (string "c")
+    return ContinueCommand
 
 parseQuit :: CharParser st Command
 parseQuit = string "quit" >> return QuitCommand
