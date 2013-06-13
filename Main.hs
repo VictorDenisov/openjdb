@@ -539,7 +539,7 @@ commandLoop = do
                             printCurrentFrame
                     commandLoop
                 FrameCommand -> do
-                    printCurrentFrame
+                    printCurrentFrame `catchError` (\e -> liftIO . putStrLn $ show e)
                     commandLoop
                 ThreadsCommand -> do
                     printThreadTree
