@@ -33,6 +33,7 @@ import qualified Language.Java.Jdi.VirtualMachine as Vm
 import qualified Language.Java.Jdi.Event as E
 import qualified Language.Java.Jdi.EventSet as ES
 import qualified Language.Java.Jdi.EventRequest as ER
+import qualified Language.Java.Jdi.Field as F
 import qualified Language.Java.Jdi.ReferenceType as RT
 import qualified Language.Java.Jdi.ArrayReference as AR
 import qualified Language.Java.Jdi.StringReference as SR
@@ -43,6 +44,7 @@ import qualified Language.Java.Jdi.ObjectReference as OR
 import qualified Language.Java.Jdi.ThreadGroupReference as TG
 import qualified Language.Java.Jdi.Method as M
 import qualified Language.Java.Jdi.Location as L
+import qualified Language.Java.Jdi.LocalVariable as LV
 
 data Flag = Version
           | Port { port :: String }
@@ -198,7 +200,7 @@ getCurrentLocation :: (MonadIO m, Error e, MonadError e m)
                    => Vm.VirtualMachine (Debugger m) L.Location
 getCurrentLocation = do
     fr <- getCurrentFrame
-    J.location fr
+    SF.location fr
 
 getCurrentFrame :: (MonadIO m, Error e, MonadError e m)
                 => Vm.VirtualMachine (Debugger m) SF.StackFrame
@@ -238,7 +240,7 @@ linesFromSourceName sourceName = do
 printSourceLines :: Vm.VirtualMachine (Debugger (ErrorT String (InputT IO))) ()
 printSourceLines = do
     l <- getCurrentLocation
-    sn <- J.sourceName l
+    sn <- L.sourceName l
     let ln = L.lineNumber l
     dat <- lift $ linesFromSourceName sn
     when (null dat) $
@@ -277,7 +279,7 @@ printSourceLine :: Vm.VirtualMachine (Debugger (ErrorT String (InputT IO))) ()
 printSourceLine = do
     l <- getCurrentLocation
     let ln = L.lineNumber l
-    sn <- J.sourceName l
+    sn <- L.sourceName l
     dat <- lift $ linesFromSourceName sn
     when (null dat) $
         throwError $ sn ++ ":" ++ show ln ++ " - source unavailable"
@@ -291,7 +293,7 @@ eventLoop = do
     continue <- case E.eventKind event of
         E.ClassPrepare -> do
             setupBreakpoints $ E.referenceType event
-            J.resume es
+            ES.resume es
             return True
         E.Breakpoint -> do
             lift . setCurrentThread =<< E.thread event
@@ -319,7 +321,7 @@ className (BreakpointMethodCommand cn _) = cn
 setupBreakpoints :: RT.ReferenceType
                  -> Vm.VirtualMachine (Debugger (ErrorT String (InputT IO))) ()
 setupBreakpoints refType = do
-    let refName = J.name refType
+    let refName = RT.name refType
     allBreakpoints <- lift listPendingBreakpoints
     let bpList = filter ((refName ==) . className) allBreakpoints
     let reminder = filter ((refName /=) . className) allBreakpoints
@@ -332,7 +334,7 @@ setupBreakpoint :: RT.ReferenceType
                 -> Command
                 -> Vm.VirtualMachine (Debugger (ErrorT String (InputT IO))) ()
 setupBreakpoint refType (BreakpointLineCommand nm line) = do
-    lineLocations <- J.allLineLocations refType
+    lineLocations <- RT.allLineLocations refType
     let matchingLines = filter ((line ==) . L.lineNumber) lineLocations
     if null matchingLines
         then liftIO . putStrLn
@@ -340,11 +342,11 @@ setupBreakpoint refType (BreakpointLineCommand nm line) = do
         else void $ ER.enable $ ER.createBreakpointRequest (head matchingLines)
 setupBreakpoint refType (BreakpointMethodCommand nm method) = do
     methods <- RT.methods refType
-    let matchingMethods = filter ((method ==) . J.name) methods
+    let matchingMethods = filter ((method ==) . M.name) methods
     if null matchingMethods
         then liftIO . putStrLn $ "there is no method with name: " ++ method
         else do
-            l <- J.location $ head matchingMethods
+            l <- M.location $ head matchingMethods
             let br = ER.createBreakpointRequest l
             void $ ER.enable br
 
@@ -362,18 +364,18 @@ calcSyntaxTree (JS.ExpName (JS.Name ((JS.Ident name):[]))) = do
     ct <- lift getCurrentThread
     allFrames <- TR.allFrames ct
     let fr = head allFrames
-    loc <- J.location fr
+    loc <- SF.location fr
     let curMethod = L.method loc
     vars <- M.variables curMethod
     args <- M.arguments curMethod
     let ref = L.declaringType loc
     fields <- RT.fields ref
-    let allVars = filter ((name ==) . J.name) (vars ++ args)
-    let allFields = filter ((name ==) . J.name) fields
-    let staticFields = filter J.isStatic allFields
+    let allVars = filter ((name ==) . LV.name) (vars ++ args)
+    let allFields = filter ((name ==) . F.name) fields
+    let staticFields = filter F.isStatic allFields
     let instanceFields =
-            if not $ J.isStatic curMethod
-                then filter (not . J.isStatic) allFields
+            if not $ M.isStatic curMethod
+                then filter (not . F.isStatic) allFields
                 else []
     when (null allVars && null allFields)
                     $ throwError $ "Scope doesn't have variable: " ++ name
@@ -406,7 +408,7 @@ showValue :: MonadException m =>
 showValue (V.CharValue c)   = return [c]
 showValue (V.LongValue c)   = return $ show c
 showValue (V.IntValue c)    = return $ show c
-showValue (V.StringValue s) = show <$> SR.stringValue s
+showValue (V.StringValue s) = show <$> SR.value s
 showValue (V.ArrayValue a)  = do
     av <- AR.getValues a
     vs <- mapM showValue av
@@ -416,11 +418,11 @@ showValue v                 = return $ show v
 showStackFrame :: (Error e, MonadIO m, MonadError e m)
           => SF.StackFrame -> Vm.VirtualMachine m String
 showStackFrame sf = do
-    loc <- J.location sf
+    loc <- SF.location sf
     let method = L.method loc
-    srcName <- J.sourceName loc
+    srcName <- L.sourceName loc
     let lineNum = L.lineNumber loc
-    return $ (J.name method) ++ " at " ++ srcName ++ ": " ++ show lineNum
+    return $ (M.name method) ++ " at " ++ srcName ++ ": " ++ show lineNum
 
 printThreadTree :: (Error e, MonadIO m, MonadError e m)
              => Vm.VirtualMachine m ()
@@ -433,7 +435,7 @@ formatThread :: (Error e, MonadIO m, MonadError e m)
 formatThread tr = do
     threadStatus <- TR.status tr
     suspended <- TR.isSuspended tr
-    return $ J.name tr
+    return $ TR.name tr
              ++ " " ++
              show threadStatus
              ++ " " ++
@@ -445,7 +447,7 @@ printThreadGroup depth tg = do
     let is = "   "
     let indent = concat $ replicate depth is
     liftIO $ putStrLn ""
-    liftIO $ putStrLn $ indent ++ "Group: " ++ (J.name tg)
+    liftIO $ putStrLn $ indent ++ "Group: " ++ (TG.name tg)
 
     ts <- mapM formatThread =<< (TG.threads tg)
     liftIO $ putStrLn $ intercalate "\n" $ map ((indent ++ is) ++) ts
@@ -499,7 +501,7 @@ commandLoop = do
                     commandLoop
                 cmd@(BreakpointLineCommand name line) -> do
                     lift . addBreakpoint $ BreakpointLineCommand name line
-                    ac <- filter ((name ==) . J.name) <$> Vm.allClasses
+                    ac <- filter ((name ==) . RT.name) <$> Vm.allClasses
                     when (null ac) $ liftIO $ putStrLn
                               $ "No classes with name "
                                 ++ name
@@ -508,7 +510,7 @@ commandLoop = do
                     commandLoop
                 cmd@(BreakpointMethodCommand name method) -> do
                     lift . addBreakpoint $ BreakpointMethodCommand name method
-                    ac <- filter ((name ==) . J.name) <$> Vm.allClasses
+                    ac <- filter ((name ==) . RT.name) <$> Vm.allClasses
                     when (null ac) $ liftIO $ putStrLn
                               $ "No classes with name "
                                 ++ name
