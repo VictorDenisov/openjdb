@@ -247,7 +247,7 @@ printSourceLines = do
         throwError $ sn ++ ":" ++ show ln ++ " - source unavailable"
     let blockStart = max 0 (ln - 5)
     liftIO $ putStrLn $ intercalate "\n" $ take 10 $ drop blockStart $ dat
-    `catchError` (\e -> liftIO . putStrLn $ show e)
+    `catchError` (\e -> liftIO $ putStrLn e)
 
 addBreakpoint :: Monad m => Command -> Debugger m ()
 addBreakpoint c = do
@@ -284,7 +284,7 @@ printSourceLine = do
     when (null dat) $
         throwError $ sn ++ ":" ++ show ln ++ " - source unavailable"
     liftIO $ putStrLn $ dat !! (ln - 1)
-    `catchError` (\e -> liftIO . putStrLn $ show e)
+    `catchError` (\e -> liftIO $ putStrLn e)
 
 eventLoop :: Vm.VirtualMachine (Debugger (ErrorT String (InputT IO))) ()
 eventLoop = do
@@ -521,22 +521,26 @@ commandLoop = do
                     printSourceLines
                     commandLoop
                 UpCommand -> do
-                    tr <- lift getCurrentThread
-                    frCnt <- TR.frameCount tr
-                    cf <- lift getCurrentFrameNumber
-                    if cf >= (frCnt - 1)
-                        then liftIO $ putStrLn "Initial frame selected; you cannot go up."
-                        else do
-                            lift $ setCurrentFrameNumber (cf + 1)
-                            printCurrentFrame
+                    (do
+                        tr <- lift getCurrentThread
+                        frCnt <- TR.frameCount tr
+                        cf <- lift getCurrentFrameNumber
+                        if cf >= (frCnt - 1)
+                            then liftIO $ putStrLn "Initial frame selected; you cannot go up."
+                            else do
+                                lift $ setCurrentFrameNumber (cf + 1)
+                                printCurrentFrame
+                        ) `catchError` (\e -> liftIO $ putStrLn e)
                     commandLoop
                 DownCommand -> do
-                    cf <- lift getCurrentFrameNumber
-                    if cf == 0
-                        then liftIO $ putStrLn "Bottom frame selected; you cannot go down."
-                        else do
-                            lift $ setCurrentFrameNumber (cf - 1)
-                            printCurrentFrame
+                    (do
+                        cf <- lift getCurrentFrameNumber
+                        if cf == 0
+                            then liftIO $ putStrLn "Bottom frame selected; you cannot go down."
+                            else do
+                                lift $ setCurrentFrameNumber (cf - 1)
+                                printCurrentFrame
+                        ) `catchError` (\e -> liftIO $ putStrLn e)
                     commandLoop
                 FrameCommand -> do
                     printCurrentFrame `catchError` (\e -> liftIO . putStrLn $ show e)
@@ -550,7 +554,7 @@ commandLoop = do
                                 v <- calcSyntaxTree st
                                 sv <- showValue v
                                 liftIO $ putStrLn sv
-                              `catchError` (\e -> liftIO . putStrLn $ show e)
+                              `catchError` (\e -> liftIO $ putStrLn e)
                         Left  e  ->
                                liftIO . putStrLn $ "SyntaxError " ++ (show e)
                     commandLoop
@@ -565,7 +569,7 @@ commandLoop = do
                     Vm.resume
                     return True
                     `catchError` (\e -> do
-                                    liftIO . putStrLn $ show e
+                                    liftIO $ putStrLn e
                                     commandLoop)
                 StepCommand -> do
                     ct <- lift getCurrentThread
@@ -578,7 +582,7 @@ commandLoop = do
                     Vm.resume
                     return True
                     `catchError` (\e -> do
-                                    liftIO . putStrLn $ show e
+                                    liftIO $ putStrLn e
                                     commandLoop)
                 ErroneousCommand error -> do
                     liftIO $ putStrLn
