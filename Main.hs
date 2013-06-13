@@ -134,7 +134,7 @@ isMethod _ = False
 
 commandLineComplete :: Monad m => [JF.Class] -> CompletionFunc m
 commandLineComplete classes (leftLine, _) = do
-    if "breakpoint " `isPrefixOf` line
+    if ("breakpoint " `isPrefixOf` line) || ("b " `isPrefixOf` line)
         then do
             case (length w, whiteSpaceTerminated) of
                 (1, True) -> return (leftLine,
@@ -660,14 +660,13 @@ parseBacktrace = do
 parseBreakpointCommand :: CharParser st Command
 parseBreakpointCommand = do
     parseBreakpoint
-    char ' '
     className <- parseClassName
     char ' '
     ((return . (BreakpointMethodCommand className) =<< parseMethod) <|>
      (return . (BreakpointLineCommand className) =<< parseLineNum))
 
 parseBreakpoint :: CharParser st String
-parseBreakpoint = string "breakpoint"
+parseBreakpoint = try (string "breakpoint ") <|> (string "b ")
 
 parseClassName :: CharParser st String
 parseClassName = many1 (noneOf " ")
