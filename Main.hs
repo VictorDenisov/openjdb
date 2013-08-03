@@ -45,10 +45,13 @@ import qualified Language.Java.Jdi.ThreadGroupReference as TG
 import qualified Language.Java.Jdi.Method as M
 import qualified Language.Java.Jdi.Location as L
 import qualified Language.Java.Jdi.LocalVariable as LV
+import qualified Vim.Netbeans as N
 
 data Flag = Version
           | Port { port :: String }
           | Host { host :: String }
+          | VimPort { vimPort :: String }
+          | VimHost { vimHost :: String }
           | ClassPath { path :: String }
           | SourcePath { path :: String }
             deriving (Show, Eq)
@@ -58,6 +61,8 @@ options =
     [ Option ['v'] ["version"] (NoArg Version) "show version number"
     , Option ['p'] ["port"]    (ReqArg Port "PORT") "port number"
     , Option ['h'] ["host"]    (ReqArg Host "HOST") "host number"
+    , Option [] ["vim-port"]    (ReqArg VimPort "VIM-PORT") "port number"
+    , Option [] ["vim-host"]    (ReqArg VimHost "VIM-HOST") "host number"
     , Option ['c'] ["class-path"] (ReqArg ClassPath "CLASS-PATH")
                                   "class-path path"
     , Option ['s'] ["source-path"] (ReqArg SourcePath "SOURCE-PATH")
@@ -71,6 +76,14 @@ isPort _ = False
 isHost :: Flag -> Bool
 isHost (Host _) = True
 isHost _ = False
+
+isVimPort :: Flag -> Bool
+isVimPort (VimPort _) = True
+isVimPort _ = False
+
+isVimHost :: Flag -> Bool
+isVimHost (VimHost _) = True
+isVimHost _ = False
 
 isClassPath :: Flag -> Bool
 isClassPath (ClassPath _) = True
@@ -90,6 +103,17 @@ getPort opts = PortNumber $ fromIntegral $ fromMaybe 2044 portValue
 
 getHost :: [Flag] -> String
 getHost opts = fromMaybe "localhost" $ find isHost opts >>= return . host
+
+getVimPort :: [Flag] -> PortID
+getVimPort opts = PortNumber $ fromIntegral $ fromMaybe 4444 portValue
+    where
+        portValue :: Maybe Int
+        portValue = do
+            v <- find isVimPort opts
+            return $ read $ vimPort v
+
+getVimHost :: [Flag] -> String
+getVimHost opts = fromMaybe "localhost" $ find isVimHost opts >>= return . vimHost
 
 extractClassFileSource :: [Flag] -> JF.ClassFileSource
 extractClassFileSource fs = JF.ClassPath $ map spToCfp $ filter isClassPath fs
@@ -180,11 +204,14 @@ main = do
     cpClasses <- map snd <$> (JF.parseFileSource $ extractClassFileSource opts)
     let sourceFiles = map path $ filter isSourcePath opts
     res <- runInputT (Settings (commandLineComplete cpClasses) Nothing True)
-               $ runErrorT $ evalStateT (Vm.runVirtualMachine
-                               (getHost opts)
-                               (getPort opts)
-                               (initialSetup >> eventLoop))
-                               (DebugConfig [] Nothing sourceFiles 0)
+               $ runErrorT $ evalStateT (N.runNetbeans
+                                            (getVimPort opts)
+                                            "password"
+                                            (Vm.runVirtualMachine
+                                               (getHost opts)
+                                               (getPort opts)
+                                               (initialSetup >> eventLoop)))
+                                        (DebugConfig [] Nothing sourceFiles 0)
     case res of
           Left e -> putStrLn $ "Error during execution: " ++ e
           Right v -> putStrLn $ "Success"
@@ -197,16 +224,16 @@ data DebugConfig = DebugConfig
     }
 
 getCurrentLocation :: (MonadIO m, Error e, MonadError e m)
-                   => Vm.VirtualMachine (Debugger m) L.Location
+                   => Vm.VirtualMachine (N.Netbeans (Debugger m)) L.Location
 getCurrentLocation = do
     fr <- getCurrentFrame
     SF.location fr
 
 getCurrentFrame :: (MonadIO m, Error e, MonadError e m)
-                => Vm.VirtualMachine (Debugger m) SF.StackFrame
+                => Vm.VirtualMachine (N.Netbeans (Debugger m)) SF.StackFrame
 getCurrentFrame = do
-    tr <- lift getCurrentThread
-    cf <- lift $ currentFrameNumber `liftM` get
+    tr <- lift $ lift getCurrentThread
+    cf <- lift $ lift $ currentFrameNumber `liftM` get
     TR.frame tr cf
 
 getCurrentFrameNumber :: Monad m => Debugger m Int
@@ -237,12 +264,12 @@ linesFromSourceName sourceName = do
             let width = length $ show l
             return $ zipWith (++) (map (alignNum width) [1..l]) rawLines
 
-printSourceLines :: Vm.VirtualMachine (Debugger (ErrorT String (InputT IO))) ()
+printSourceLines :: Vm.VirtualMachine (N.Netbeans (Debugger (ErrorT String (InputT IO)))) ()
 printSourceLines = do
     l <- getCurrentLocation
     sn <- L.sourceName l
     let ln = L.lineNumber l
-    dat <- lift $ linesFromSourceName sn
+    dat <- lift $ lift $ linesFromSourceName sn
     when (null dat) $
         throwError $ sn ++ ":" ++ show ln ++ " - source unavailable"
     let blockStart = max 0 (ln - 5)
@@ -267,7 +294,7 @@ setCurrentThread tr = do
     dc <- get
     put $ dc {currentThread = Just tr}
 
-initialSetup :: Vm.VirtualMachine (Debugger (ErrorT String (InputT IO))) ()
+initialSetup :: (Error e, MonadIO m, MonadError e m) => Vm.VirtualMachine m ()
 initialSetup = do
     ER.enable ER.createClassPrepareRequest
     return ()
@@ -275,18 +302,18 @@ initialSetup = do
 getSourceFiles :: (Error e, MonadError e m) => Debugger m [String]
 getSourceFiles = sourceFiles `liftM` get
 
-printSourceLine :: Vm.VirtualMachine (Debugger (ErrorT String (InputT IO))) ()
+printSourceLine :: Vm.VirtualMachine (N.Netbeans (Debugger (ErrorT String (InputT IO)))) ()
 printSourceLine = do
     l <- getCurrentLocation
     let ln = L.lineNumber l
     sn <- L.sourceName l
-    dat <- lift $ linesFromSourceName sn
+    dat <- lift $ lift $ linesFromSourceName sn
     when (null dat) $
         throwError $ sn ++ ":" ++ show ln ++ " - source unavailable"
     liftIO $ putStrLn $ dat !! (ln - 1)
     `catchError` (\e -> liftIO $ putStrLn e)
 
-eventLoop :: Vm.VirtualMachine (Debugger (ErrorT String (InputT IO))) ()
+eventLoop :: Vm.VirtualMachine (N.Netbeans (Debugger (ErrorT String (InputT IO)))) ()
 eventLoop = do
     es <- ES.removeEvent
     let event = head $ ES.events es
@@ -296,13 +323,13 @@ eventLoop = do
             ES.resume es
             return True
         E.Breakpoint -> do
-            lift . setCurrentThread =<< E.thread event
-            lift $ setCurrentFrameNumber 0
+            lift . lift . setCurrentThread =<< E.thread event
+            lift $ lift $ setCurrentFrameNumber 0
             printSourceLine
             commandLoop
         E.SingleStep -> do
-            lift . setCurrentThread =<< E.thread event
-            lift $ setCurrentFrameNumber 0
+            lift . lift . setCurrentThread =<< E.thread event
+            lift $ lift $ setCurrentFrameNumber 0
             printSourceLine
             commandLoop
         E.VmDeath -> do
@@ -319,20 +346,20 @@ className (BreakpointLineCommand cn _) = cn
 className (BreakpointMethodCommand cn _) = cn
 
 setupBreakpoints :: RT.ReferenceType
-                 -> Vm.VirtualMachine (Debugger (ErrorT String (InputT IO))) ()
+                 -> Vm.VirtualMachine (N.Netbeans (Debugger (ErrorT String (InputT IO)))) ()
 setupBreakpoints refType = do
     let refName = RT.name refType
-    allBreakpoints <- lift listPendingBreakpoints
+    allBreakpoints <- lift $ lift listPendingBreakpoints
     let bpList = filter ((refName ==) . className) allBreakpoints
     let reminder = filter ((refName /=) . className) allBreakpoints
     when (not $ null bpList) $ liftIO $ putStrLn
                             $ "Setting up breakpoints for class " ++ refName
     forM_ bpList (setupBreakpoint refType)
-    lift $ setPendingBreakpoints reminder
+    lift $ lift $ setPendingBreakpoints reminder
 
 setupBreakpoint :: RT.ReferenceType
                 -> Command
-                -> Vm.VirtualMachine (Debugger (ErrorT String (InputT IO))) ()
+                -> Vm.VirtualMachine (N.Netbeans (Debugger (ErrorT String (InputT IO)))) ()
 setupBreakpoint refType (BreakpointLineCommand nm line) = do
     lineLocations <- RT.allLineLocations refType
     let matchingLines = filter ((line ==) . L.lineNumber) lineLocations
@@ -359,9 +386,9 @@ getCurrentThread = do
 
 calcSyntaxTree :: MonadException m
                => JS.Exp
-               -> Vm.VirtualMachine (Debugger (ErrorT String (InputT m))) V.Value
+               -> Vm.VirtualMachine (N.Netbeans (Debugger (ErrorT String (InputT m)))) V.Value
 calcSyntaxTree (JS.ExpName (JS.Name ((JS.Ident name):[]))) = do
-    ct <- lift getCurrentThread
+    ct <- lift $ lift getCurrentThread
     allFrames <- TR.allFrames ct
     let fr = head allFrames
     loc <- SF.location fr
@@ -404,7 +431,7 @@ calcSyntaxTree e = throwError
 
 showValue :: MonadException m =>
              V.Value
-          -> Vm.VirtualMachine (Debugger (ErrorT String (InputT m))) String
+          -> Vm.VirtualMachine (N.Netbeans (Debugger (ErrorT String (InputT m)))) String
 showValue (V.CharValue c)   = return [c]
 showValue (V.LongValue c)   = return $ show c
 showValue (V.IntValue c)    = return $ show c
@@ -454,16 +481,16 @@ printThreadGroup depth tg = do
 
     mapM_ (printThreadGroup $ depth + 1) =<< TG.threadGroups tg
 
-printCurrentFrame :: Vm.VirtualMachine (Debugger (ErrorT String (InputT IO))) ()
+printCurrentFrame :: Vm.VirtualMachine (N.Netbeans (Debugger (ErrorT String (InputT IO)))) ()
 printCurrentFrame = do
-    cf <- lift getCurrentFrameNumber
+    cf <- lift $ lift getCurrentFrameNumber
     fr <- getCurrentFrame
     frameString <- (showStackFrame fr)
     liftIO $ putStrLn $ "#" ++ (show cf) ++ " " ++ frameString
 
-liftInpTtoVM = lift . lift . lift
+liftInpTtoVM = lift . lift . lift . lift
 
-commandLoop :: Vm.VirtualMachine (Debugger (ErrorT String (InputT IO))) Bool
+commandLoop :: Vm.VirtualMachine (N.Netbeans (Debugger (ErrorT String (InputT IO)))) Bool
 commandLoop = do
     minput <- liftInpTtoVM $ getInputLine "(jdb) "
     case minput of
@@ -486,7 +513,7 @@ commandLoop = do
                 ContinueCommand ->
                     Vm.resume >> return True
                 BacktraceCommand -> do
-                    ct <- lift getCurrentThread
+                    ct <- lift $ lift getCurrentThread
                     frames <- TR.allFrames ct
                     res <- mapM showStackFrame frames
                     let l = (length res)
@@ -500,7 +527,7 @@ commandLoop = do
                     liftIO $ putStrLn $ intercalate "\n" numberedLines
                     commandLoop
                 cmd@(BreakpointLineCommand name line) -> do
-                    lift . addBreakpoint $ BreakpointLineCommand name line
+                    lift . lift . addBreakpoint $ BreakpointLineCommand name line
                     ac <- filter ((name ==) . RT.name) <$> Vm.allClasses
                     when (null ac) $ liftIO $ putStrLn
                               $ "No classes with name "
@@ -509,7 +536,7 @@ commandLoop = do
                     mapM setupBreakpoints ac
                     commandLoop
                 cmd@(BreakpointMethodCommand name method) -> do
-                    lift . addBreakpoint $ BreakpointMethodCommand name method
+                    lift . lift . addBreakpoint $ BreakpointMethodCommand name method
                     ac <- filter ((name ==) . RT.name) <$> Vm.allClasses
                     when (null ac) $ liftIO $ putStrLn
                               $ "No classes with name "
@@ -522,23 +549,23 @@ commandLoop = do
                     commandLoop
                 UpCommand -> do
                     (do
-                        tr <- lift getCurrentThread
+                        tr <- lift $ lift getCurrentThread
                         frCnt <- TR.frameCount tr
-                        cf <- lift getCurrentFrameNumber
+                        cf <- lift $ lift getCurrentFrameNumber
                         if cf >= (frCnt - 1)
                             then liftIO $ putStrLn "Initial frame selected; you cannot go up."
                             else do
-                                lift $ setCurrentFrameNumber (cf + 1)
+                                lift $ lift $ setCurrentFrameNumber (cf + 1)
                                 printCurrentFrame
                         ) `catchError` (\e -> liftIO $ putStrLn e)
                     commandLoop
                 DownCommand -> do
                     (do
-                        cf <- lift getCurrentFrameNumber
+                        cf <- lift $ lift getCurrentFrameNumber
                         if cf == 0
                             then liftIO $ putStrLn "Bottom frame selected; you cannot go down."
                             else do
-                                lift $ setCurrentFrameNumber (cf - 1)
+                                lift $ lift $ setCurrentFrameNumber (cf - 1)
                                 printCurrentFrame
                         ) `catchError` (\e -> liftIO $ putStrLn e)
                     commandLoop
@@ -559,7 +586,7 @@ commandLoop = do
                                liftIO . putStrLn $ "SyntaxError " ++ (show e)
                     commandLoop
                 NextCommand -> do
-                    ct <- lift getCurrentThread
+                    ct <- lift $ lift getCurrentThread
                     ER.enable $ ER.addCountFilter
                                     1
                                     (ER.createStepRequest
@@ -572,7 +599,7 @@ commandLoop = do
                                     liftIO $ putStrLn e
                                     commandLoop)
                 StepCommand -> do
-                    ct <- lift getCurrentThread
+                    ct <- lift $ lift getCurrentThread
                     ER.enable $ ER.addCountFilter
                                     1
                                     (ER.createStepRequest
