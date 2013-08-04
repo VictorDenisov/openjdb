@@ -13,6 +13,7 @@ import Data.Maybe (fromMaybe, fromJust)
 import GHC.Word (Word16, Word32, Word8)
 import Network.Socket.Internal (PortNumber(..))
 import Control.Monad.Trans (liftIO, lift)
+import Control.Applicative ((<$>), Applicative)
 import Control.Monad.Error (runErrorT, ErrorT, MonadError(..), Error(..))
 import Control.Monad.State (StateT(..), MonadState(..), evalStateT)
 import Control.Monad.IO.Class (MonadIO)
@@ -218,7 +219,7 @@ main = do
                                                (getHost opts)
                                                (getPort opts)
                                                (initialSetup >> eventLoop)))
-                                        (DebugConfig [] Nothing sourceFiles 0)
+                                        (DebugConfig [] Nothing sourceFiles [] 0)
     case res of
           Left e -> putStrLn $ "Error during execution: " ++ e
           Right v -> putStrLn $ "Success"
@@ -227,8 +228,20 @@ data DebugConfig = DebugConfig
     { breakpoints :: [Command] -- breakpoints whose classes are not loaded yet.
     , currentThread :: Maybe TR.ThreadReference
     , sourceFiles :: [String]
+    , bufferIdMap :: [(String, N.BufId)] -- TODO replace with actual map
     , currentFrameNumber :: Int
     }
+
+getBufIdByPath :: (MonadIO m, Applicative m) => String -> Debugger m (Maybe N.BufId)
+getBufIdByPath path = do
+    mp <- bufferIdMap <$> get
+    return $ lookup path mp
+
+addBufIdByPath :: (MonadIO m, Applicative m) => String -> N.BufId -> Debugger m ()
+addBufIdByPath path bid = do
+    dc <- get
+    let mp = bufferIdMap dc
+    put $ dc { bufferIdMap = (path, bid) : mp }
 
 getCurrentLocation :: (MonadIO m, Error e, MonadError e m)
                    => Vm.VirtualMachine (N.Netbeans (Debugger m)) L.Location
@@ -256,6 +269,16 @@ type Debugger = StateT DebugConfig
 alignNum :: Int -> Int -> String
 alignNum width number = replicate (width - length s) ' ' ++ s ++ " "
     where s = show number
+
+fullPathFromSourceName :: (MonadIO m, Error e, MonadError e m)
+                    => String -> Debugger m String
+fullPathFromSourceName sourceName = do
+    sourceList <- filter (sourceName `isSuffixOf`) `liftM` getSourceFiles
+    if length sourceList > 1
+        then throwError $ strMsg "there are more than one source file"
+        else if null sourceList
+            then throwError $ strMsg "no source name"
+            else return $ head sourceList
 
 linesFromSourceName :: (MonadIO m, Error e, MonadError e m)
                     => String -> Debugger m [String]
@@ -320,6 +343,19 @@ printSourceLine = do
     liftIO $ putStrLn $ dat !! (ln - 1)
     `catchError` (\e -> liftIO $ putStrLn e)
 
+notifyVimAboutSoureLine :: Vm.VirtualMachine (N.Netbeans (Debugger (ErrorT String (InputT IO)))) ()
+notifyVimAboutSoureLine = do
+    l <- getCurrentLocation
+    sn <- L.sourceName l
+    fullPath <- lift $ lift $ fullPathFromSourceName sn
+    mbi <- lift $ lift $ getBufIdByPath fullPath
+    case mbi of
+        Just bufId -> do
+            lift $ N.setVisible bufId
+        Nothing -> do
+            newBufId <- lift $ N.editFile fullPath
+            lift $ lift $ addBufIdByPath fullPath newBufId
+
 eventLoop :: Vm.VirtualMachine (N.Netbeans (Debugger (ErrorT String (InputT IO)))) ()
 eventLoop = do
     es <- ES.removeEvent
@@ -333,11 +369,13 @@ eventLoop = do
             lift . lift . setCurrentThread =<< E.thread event
             lift $ lift $ setCurrentFrameNumber 0
             printSourceLine
+            notifyVimAboutSoureLine
             commandLoop
         E.SingleStep -> do
             lift . lift . setCurrentThread =<< E.thread event
             lift $ lift $ setCurrentFrameNumber 0
             printSourceLine
+            notifyVimAboutSoureLine
             commandLoop
         E.VmDeath -> do
             return False
