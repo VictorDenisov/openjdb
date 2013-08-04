@@ -228,20 +228,30 @@ data DebugConfig = DebugConfig
     { breakpoints :: [Command] -- breakpoints whose classes are not loaded yet.
     , currentThread :: Maybe TR.ThreadReference
     , sourceFiles :: [String]
-    , bufferIdMap :: [(String, N.BufId)] -- TODO replace with actual map
+    , bufferIdMap :: [(String, (N.BufId, N.AnnoTypeNum, N.AnnoNum))] -- TODO replace with actual map
     , currentFrameNumber :: Int
     }
 
-getBufIdByPath :: (MonadIO m, Applicative m) => String -> Debugger m (Maybe N.BufId)
+getBufIdByPath :: (MonadIO m, Applicative m) => String -> Debugger m (Maybe (N.BufId, N.AnnoTypeNum, N.AnnoNum))
 getBufIdByPath path = do
     mp <- bufferIdMap <$> get
     return $ lookup path mp
 
-addBufIdByPath :: (MonadIO m, Applicative m) => String -> N.BufId -> Debugger m ()
-addBufIdByPath path bid = do
+updateAnnoNum :: (MonadIO m, Applicative m) => String -> N.AnnoNum -> Debugger m ()
+updateAnnoNum path annoNum = do
     dc <- get
     let mp = bufferIdMap dc
-    put $ dc { bufferIdMap = (path, bid) : mp }
+    let newMp = flip map mp $ \(s, (bufid, atn, at)) ->
+                                        if s == path
+                                            then (s, (bufid, atn, annoNum))
+                                            else (s, (bufid, atn, at))
+    put $ dc { bufferIdMap = newMp }
+
+addBufIdByPath :: (MonadIO m, Applicative m) => String -> N.BufId -> N.AnnoTypeNum -> N.AnnoNum -> Debugger m ()
+addBufIdByPath path bid annoTypeNum annoNum = do
+    dc <- get
+    let mp = bufferIdMap dc
+    put $ dc { bufferIdMap = (path, (bid, annoTypeNum, annoNum)) : mp }
 
 getCurrentLocation :: (MonadIO m, Error e, MonadError e m)
                    => Vm.VirtualMachine (N.Netbeans (Debugger m)) L.Location
@@ -324,7 +334,7 @@ setCurrentThread tr = do
     dc <- get
     put $ dc {currentThread = Just tr}
 
-initialSetup :: (Error e, MonadIO m, MonadError e m) => Vm.VirtualMachine m ()
+initialSetup :: Vm.VirtualMachine (N.Netbeans (Debugger (ErrorT String (InputT IO)))) ()
 initialSetup = do
     ER.enable ER.createClassPrepareRequest
     return ()
@@ -343,18 +353,33 @@ printSourceLine = do
     liftIO $ putStrLn $ dat !! (ln - 1)
     `catchError` (\e -> liftIO $ putStrLn e)
 
+calcOffset :: N.BufId -> Int -> N.Netbeans (Debugger (ErrorT String (InputT IO))) Int
+calcOffset bufId ln = do
+    txt <- N.getText bufId
+    let ls = lines txt
+    let contents = concat $ take (ln - 1) ls -- ln - 1 because we count lines from 1
+    return $ length contents + ln -- ln - number of newline symbols. haskell has '\n' symbol always.
+
 notifyVimAboutSoureLine :: Vm.VirtualMachine (N.Netbeans (Debugger (ErrorT String (InputT IO)))) ()
 notifyVimAboutSoureLine = do
     l <- getCurrentLocation
+    let ln = L.lineNumber l
     sn <- L.sourceName l
     fullPath <- lift $ lift $ fullPathFromSourceName sn
     mbi <- lift $ lift $ getBufIdByPath fullPath
     case mbi of
-        Just bufId -> do
+        Just (bufId, annoTypeNum, annoNum) -> do
             lift $ N.setVisible bufId
+            offset <- lift $ calcOffset bufId ln
+            lift $ N.removeAnno bufId annoNum
+            newAnnoNum <- lift $ N.addAnno bufId annoTypeNum offset
+            lift $ lift $ updateAnnoNum fullPath newAnnoNum
         Nothing -> do
             newBufId <- lift $ N.editFile fullPath
-            lift $ lift $ addBufIdByPath fullPath newBufId
+            annoTypeNum <- lift $ N.defineAnnoType newBufId "IP" "IP" "=>" N.Black N.LightRed
+            offset <- lift $ calcOffset newBufId ln
+            annoNum <- lift $ N.addAnno newBufId annoTypeNum offset
+            lift $ lift $ addBufIdByPath fullPath newBufId annoTypeNum annoNum
 
 eventLoop :: Vm.VirtualMachine (N.Netbeans (Debugger (ErrorT String (InputT IO)))) ()
 eventLoop = do
@@ -369,13 +394,13 @@ eventLoop = do
             lift . lift . setCurrentThread =<< E.thread event
             lift $ lift $ setCurrentFrameNumber 0
             printSourceLine
-            notifyVimAboutSoureLine
+            notifyVimAboutSoureLine `catchError` (\e -> return ())
             commandLoop
         E.SingleStep -> do
             lift . lift . setCurrentThread =<< E.thread event
             lift $ lift $ setCurrentFrameNumber 0
             printSourceLine
-            notifyVimAboutSoureLine
+            notifyVimAboutSoureLine `catchError` (\e -> return ())
             commandLoop
         E.VmDeath -> do
             return False
