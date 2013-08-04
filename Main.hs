@@ -207,6 +207,13 @@ main = do
                $ runErrorT $ evalStateT (N.runNetbeans
                                             (getVimPort opts)
                                             "password"
+                                            (N.NetbeansCallbacks
+                                                (liftIO $ putStrLn "Waiting for netbeans connection")
+                                                (\e -> case e of
+                                                    N.StartupDone -> liftIO $ putStrLn "Successful handshake over netbeans protocol"
+                                                    _ -> return ()
+                                                )
+                                            )
                                             (Vm.runVirtualMachine
                                                (getHost opts)
                                                (getPort opts)
